@@ -7,7 +7,20 @@ import {
   User,
 } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+// Backend manzilini aniqlash: VITE_API_URL berilgan bo'lsa shuni ishlatadi, aks holda
+// joriy sahifa qaysi host (localhost, lokal tarmoq IP'si yoki tunnel domeni) orqali
+// ochilgan bo'lsa, backend'ni ham o'sha host'ning 8000-portidan avtomatik topadi -
+// shunda telefon lokal Wi-Fi orqali ham, tunnel orqali ham API'ga to'g'ri ulanadi.
+function resolveApiBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl) return envUrl;
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    return `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
+  }
+  return 'http://localhost:8000/api/v1';
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 class ApiClient {
   private token: string | null = null;
