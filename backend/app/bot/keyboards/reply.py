@@ -1,14 +1,16 @@
-from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
+from app.bot.keyboards.utils import mini_app_button_kwargs
 from app.core.config import settings
 
 
-def get_user_main_keyboard(mini_app_url: str = settings.MINI_APP_URL) -> ReplyKeyboardMarkup:
+def get_user_main_keyboard(mini_app_url: str = None) -> ReplyKeyboardMarkup:
     """Oddiy talabalar uchun asosiy menyu klaviaturasi"""
+    target_url = mini_app_url or settings.MINI_APP_URL
     keyboard = [
         [
             KeyboardButton(
                 text="📱 UniNotify Mini App",
-                web_app=WebAppInfo(url=mini_app_url),
+                **mini_app_button_kwargs(target_url),
             )
         ],
         [
@@ -30,13 +32,14 @@ def get_user_main_keyboard(mini_app_url: str = settings.MINI_APP_URL) -> ReplyKe
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
-def get_admin_main_keyboard(mini_app_url: str = settings.MINI_APP_URL) -> ReplyKeyboardMarkup:
+def get_admin_main_keyboard(mini_app_url: str = None) -> ReplyKeyboardMarkup:
     """Administratorlar uchun boshqaruv menyusi klaviaturasi"""
+    target_url = mini_app_url or settings.MINI_APP_URL
     keyboard = [
         [
             KeyboardButton(
                 text="📱 UniNotify Mini App",
-                web_app=WebAppInfo(url=mini_app_url),
+                **mini_app_button_kwargs(target_url),
             )
         ],
         [
