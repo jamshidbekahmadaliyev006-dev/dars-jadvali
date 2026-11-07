@@ -178,7 +178,7 @@ class GeminiAIProvider(BaseAIProvider):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=180.0) as client:
                 res = await client.post(url, json=payload)
                 if res.status_code != 200:
                     logger.error(f"Gemini API error {res.status_code}: {res.text}")
@@ -219,7 +219,7 @@ class GeminiAIProvider(BaseAIProvider):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=90.0) as client:
                 res = await client.post(url, json=payload)
                 if res.status_code == 200:
                     data = res.json()

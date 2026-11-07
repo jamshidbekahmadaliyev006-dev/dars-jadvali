@@ -361,18 +361,37 @@ class ScheduleService:
             lesson_type_str = (item.get("lesson_type") or "LECTURE").upper()
             lesson_type_enum = LessonType[lesson_type_str] if lesson_type_str in LessonType.__members__ else LessonType.LECTURE
 
-            sched = Schedule(
-                university_id=submission.university_id,
-                group_id=submission.group_id,
-                subject_id=subject.id,
-                teacher_id=teacher.id if teacher else None,
-                room_id=room.id if room else None,
-                day_of_week=day_enum,
-                start_time=start_time,
-                end_time=end_time,
-                lesson_type=lesson_type_enum,
+            # Bir xil guruh/fan/kun/vaqt uchun qator allaqachon mavjudmi - tekshirib, bo'lsa
+            # UNI YANGILAYMIZ (qayta-qayta screenshot yuborilganda darslar ko'payib ketmasligi
+            # uchun), aks holda yangi qator yaratamiz
+            dup_stmt = select(Schedule).where(
+                Schedule.group_id == submission.group_id,
+                Schedule.subject_id == subject.id,
+                Schedule.day_of_week == day_enum,
+                Schedule.start_time == start_time,
             )
-            session.add(sched)
+            dup_result = await session.execute(dup_stmt)
+            sched = dup_result.scalar_one_or_none()
+
+            if sched:
+                sched.teacher_id = teacher.id if teacher else sched.teacher_id
+                sched.room_id = room.id if room else sched.room_id
+                sched.end_time = end_time
+                sched.lesson_type = lesson_type_enum
+                sched.is_active = True
+            else:
+                sched = Schedule(
+                    university_id=submission.university_id,
+                    group_id=submission.group_id,
+                    subject_id=subject.id,
+                    teacher_id=teacher.id if teacher else None,
+                    room_id=room.id if room else None,
+                    day_of_week=day_enum,
+                    start_time=start_time,
+                    end_time=end_time,
+                    lesson_type=lesson_type_enum,
+                )
+                session.add(sched)
             created.append(sched)
 
         await session.commit()

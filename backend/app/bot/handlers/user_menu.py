@@ -161,9 +161,30 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
     )
     submission = await ScheduleService.create_submission(session, current_user.id, payload)
 
+    # Adminlarga talaba yuborgan screenshotning aynan o'zini xabardorlik uchun yuborib
+    # qo'yamiz - AI natijasi noto'g'ri bo'lsa ham, admin asl rasmni ko'rib, kerak bo'lsa
+    # qo'lda tekshirib/tuzatib qo'ya oladi
+    for admin_id in settings.admin_id_list:
+        if admin_id == current_user.telegram_id:
+            continue  # talabaning o'zi admin bo'lsa, o'ziga qayta yubormaymiz
+        try:
+            await message.bot.send_photo(
+                chat_id=admin_id,
+                photo=file_id,
+                caption=(
+                    f"📸 <b>Yangi jadval screenshoti</b>\n"
+                    f"👤 <b>Talaba:</b> {current_user.first_name} (@{current_user.username or 'username yoʻq'})\n"
+                    f"🆔 <b>Ariza:</b> #{submission.id}"
+                ),
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            logger.error(f"Failed to forward schedule photo to admin {admin_id}: {e}")
+
     loading_msg = await message.answer(
         "⏳ <b>Screenshot qabul qilindi!</b>\n"
-        "Sun'iy intellekt (AI) jadvalni tahlil qilmoqda, iltimos kuting...",
+        "Sun'iy intellekt (AI) jadvalni tahlil qilmoqda — bu bir necha o'n soniyadan "
+        "bir necha daqiqagacha vaqt olishi mumkin, iltimos sabr qiling...",
         parse_mode="HTML",
     )
 
