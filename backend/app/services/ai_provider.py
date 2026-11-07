@@ -139,7 +139,7 @@ class GeminiAIProvider(BaseAIProvider):
         self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
 
     async def extract_schedule_from_image(self, image_bytes: bytes, filename: str = "schedule.jpg") -> ExtractedScheduleResult:
-        model = "gemini-1.5-flash"
+        model = "gemini-flash-latest"
         url = f"{self.base_url}/{model}:generateContent?key={self.api_key}"
 
         base64_data = base64.b64encode(image_bytes).decode("utf-8")
@@ -200,7 +200,7 @@ class GeminiAIProvider(BaseAIProvider):
             return await MockAIProvider().extract_schedule_from_image(image_bytes, filename)
 
     async def chat_student_assistant(self, query: str, context: Dict[str, Any]) -> str:
-        model = "gemini-1.5-flash"
+        model = "gemini-flash-latest"
         url = f"{self.base_url}/{model}:generateContent?key={self.api_key}"
 
         system_instruction = (
