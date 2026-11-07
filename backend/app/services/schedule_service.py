@@ -94,20 +94,6 @@ def resolve_week_parity(raw: Optional[str]) -> WeekParity:
     return WeekParity[key] if key in WeekParity.__members__ else WeekParity.ALL
 
 
-def format_minutes_uz(minutes: int) -> str:
-    """Daqiqa sonini odam uchun tushunarli shaklga o'tkazadi: 30 -> '30 daqiqa (yarim soat)' kabi"""
-    if minutes <= 0:
-        return f"{minutes} daqiqa"
-    if minutes == 30:
-        return "30 daqiqa (yarim soat)"
-    if minutes % 60 == 0:
-        return f"{minutes} daqiqa ({minutes // 60} soat)"
-    if minutes > 60:
-        hours, rem = divmod(minutes, 60)
-        return f"{minutes} daqiqa ({hours} soat {rem} daqiqa)"
-    return f"{minutes} daqiqa"
-
-
 class ScheduleService:
     @staticmethod
     async def get_schedules(

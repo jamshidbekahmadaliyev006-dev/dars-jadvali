@@ -30,6 +30,7 @@ async def test_start_handler_for_student():
         role=UserRole.USER,
         is_active=True,
         group_id=1,  # ro'yxatdan o'tgan - registration oqimi ishga tushmasligi uchun
+        language_chosen=True,
     )
     mock_msg = make_mock_message("/start", 12345)
     mock_state = AsyncMock()
@@ -53,6 +54,7 @@ async def test_start_handler_for_admin():
         role=UserRole.ADMIN,
         is_active=True,
         group_id=1,
+        language_chosen=True,
     )
     mock_msg = make_mock_message("/start", 99999)
     mock_state = AsyncMock()
@@ -74,6 +76,7 @@ async def test_start_handler_triggers_registration_when_no_group():
         role=UserRole.USER,
         is_active=True,
         group_id=None,
+        language_chosen=True,
     )
     mock_msg = make_mock_message("/start", 55555)
     mock_state = AsyncMock()
@@ -251,3 +254,88 @@ async def test_rejecting_submission_notifies_student_once(db_session: AsyncSessi
     query.message.edit_caption.assert_awaited_once()
     query.bot.send_message.assert_awaited_once()
     assert query.bot.send_message.call_args.kwargs["chat_id"] == 501
+
+
+@pytest.mark.asyncio
+async def test_first_start_asks_language_before_anything_else():
+    new_user = User(id=9, telegram_id=9001, first_name="Yangi", role=UserRole.USER, is_active=True)
+    mock_msg = make_mock_message("/start", 9001)
+    mock_state = AsyncMock()
+
+    await handle_start(mock_msg, current_user=new_user, state=mock_state)
+
+    mock_msg.answer.assert_called_once()
+    assert "Выберите язык" in mock_msg.answer.call_args.args[0]
+    mock_state.set_state.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_choosing_russian_saves_it_and_continues_in_russian(db_session: AsyncSession):
+    from app.bot.handlers.start import handle_language_choice
+
+    user = User(telegram_id=9002, first_name="Иван", role=UserRole.USER, is_active=True, language_code="en")
+    db_session.add(user)
+    await db_session.commit()
+
+    query = MagicMock()
+    query.data = "lang_ru"
+    query.answer = AsyncMock()
+    query.message.edit_text = AsyncMock()
+    query.message.answer = AsyncMock()
+
+    await handle_language_choice(query, AsyncMock(), user, db_session)
+
+    assert user.language_code == "ru"
+    assert user.language_chosen is True
+    texts = [call.args[0] for call in query.message.answer.call_args_list]
+    assert "Привет" in texts[0]
+    assert "Ваш университет" in texts[1]
+
+
+def test_every_text_exists_in_both_languages():
+    from app.bot.i18n import LANGUAGES, TEXTS
+
+    for key, values in TEXTS.items():
+        assert set(values) == set(LANGUAGES), key
+
+
+def test_every_menu_button_has_a_handler_for_both_languages():
+    from app.bot.i18n import labels
+    from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
+
+    known = set()
+    for key in (
+        "btn_today", "btn_tomorrow", "btn_week", "btn_reminder", "btn_send", "btn_profile", "btn_language",
+        "btn_new_shots", "btn_stats", "btn_groups", "btn_users", "btn_announce", "btn_student_view",
+    ):
+        known |= labels(key)
+
+    for lang in ("uz", "ru"):
+        for keyboard in (get_user_main_keyboard(lang), get_admin_main_keyboard(lang)):
+            for row in keyboard.keyboard:
+                for button in row:
+                    assert button.text in known
+
+
+@pytest.mark.parametrize(
+    "minutes, lang, expected",
+    [
+        (30, "uz", "30 daqiqa (yarim soat)"),
+        (30, "ru", "30 минут (полчаса)"),
+        (21, "ru", "21 минуту"),
+        (2, "ru", "2 минуты"),
+        (60, "ru", "60 минут (1 ч)"),
+        (90, "ru", "90 минут (1 ч 30 мин)"),
+    ],
+)
+def test_minutes_read_naturally(minutes, lang, expected):
+    from app.bot.i18n import format_minutes
+
+    assert format_minutes(minutes, lang) == expected
+
+
+def test_russian_counts_use_correct_plural():
+    from app.bot.i18n import format_counts
+
+    assert format_counts(6, 15, "ru") == "6 предметов · 15 занятий"
+    assert format_counts(1, 2, "ru") == "1 предмет · 2 занятия"

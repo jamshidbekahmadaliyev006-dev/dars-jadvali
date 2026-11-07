@@ -1,35 +1,28 @@
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
+from app.bot.i18n import DEFAULT_LANG, t
 
 
-def get_user_main_keyboard() -> ReplyKeyboardMarkup:
+def _button(lang: str, key: str) -> KeyboardButton:
+    return KeyboardButton(text=t(lang, key))
+
+
+def get_user_main_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     """Talabalar uchun asosiy menyu"""
     keyboard = [
-        [
-            KeyboardButton(text="📖 Bugungi darslar"),
-            KeyboardButton(text="📆 Ertangi darslar"),
-        ],
-        [KeyboardButton(text="🗓 Umumiy jadval")],
-        [
-            KeyboardButton(text="⏰ Eslatma sozlamalari"),
-            KeyboardButton(text="📤 Jadval yuborish"),
-        ],
-        [KeyboardButton(text="👤 Profilim")],
+        [_button(lang, "btn_today"), _button(lang, "btn_tomorrow")],
+        [_button(lang, "btn_week")],
+        [_button(lang, "btn_reminder"), _button(lang, "btn_send")],
+        [_button(lang, "btn_profile"), _button(lang, "btn_language")],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
-def get_admin_main_keyboard() -> ReplyKeyboardMarkup:
+def get_admin_main_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     """Administratorlar uchun boshqaruv menyusi"""
     keyboard = [
-        [
-            KeyboardButton(text="📥 Yangi screenshotlar"),
-            KeyboardButton(text="📈 Statistika"),
-        ],
-        [
-            KeyboardButton(text="👥 Guruhlar"),
-            KeyboardButton(text="👤 Foydalanuvchilar"),
-        ],
-        [KeyboardButton(text="📢 E'lon yuborish")],
-        [KeyboardButton(text="🎓 Talaba ko'rinishiga o'tish")],
+        [_button(lang, "btn_new_shots"), _button(lang, "btn_stats")],
+        [_button(lang, "btn_groups"), _button(lang, "btn_users")],
+        [_button(lang, "btn_announce")],
+        [_button(lang, "btn_student_view"), _button(lang, "btn_language")],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)

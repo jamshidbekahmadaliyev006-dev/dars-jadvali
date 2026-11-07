@@ -3,6 +3,7 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.bot.i18n import DEFAULT_LANG, lang_of, t
 from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
 from app.bot.states import RegistrationStates
 from app.bot.text_utils import esc, format_weekly_schedule
@@ -27,22 +28,28 @@ def _options_keyboard(names: List[str]):
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=True)
 
 
-async def start_registration(message: Message, state: FSMContext, session: Optional[AsyncSession] = None) -> None:
+async def start_registration(
+    message: Message,
+    state: FSMContext,
+    session: Optional[AsyncSession] = None,
+    lang: str = DEFAULT_LANG,
+) -> None:
     """Talabani universitet -> fakultet -> guruh bosqichlari orqali ro'yxatdan o'tkazishni boshlaydi"""
     universities = await UniversityService.get_all_universities(session) if session else []
     await state.set_state(RegistrationStates.waiting_university)
     await message.answer(
-        "🏛 <b>Universitetingiz?</b>\n\nTanlang yoki nomini yozing:",
+        t(lang, "ask_university"),
         parse_mode="HTML",
         reply_markup=_options_keyboard([u.name for u in universities]),
     )
 
 
 @router.message(RegistrationStates.waiting_university, F.text)
-async def process_university(message: Message, state: FSMContext, session: AsyncSession) -> None:
+async def process_university(message: Message, state: FSMContext, current_user: User, session: AsyncSession) -> None:
+    lang = lang_of(current_user)
     name = (message.text or "").strip()
     if not _is_valid_name(name):
-        await message.answer("❗ Universitet nomini yozing.")
+        await message.answer(t(lang, "bad_university"))
         return
 
     univ = await UniversityService.find_university_by_name(session, name)
@@ -51,17 +58,18 @@ async def process_university(message: Message, state: FSMContext, session: Async
     await state.update_data(university_name=name)
     await state.set_state(RegistrationStates.waiting_faculty)
     await message.answer(
-        "🏢 <b>Fakultetingiz?</b>\n\nTanlang yoki nomini yozing:",
+        t(lang, "ask_faculty"),
         parse_mode="HTML",
         reply_markup=_options_keyboard([f.name for f in faculties]),
     )
 
 
 @router.message(RegistrationStates.waiting_faculty, F.text)
-async def process_faculty(message: Message, state: FSMContext, session: AsyncSession) -> None:
+async def process_faculty(message: Message, state: FSMContext, current_user: User, session: AsyncSession) -> None:
+    lang = lang_of(current_user)
     name = (message.text or "").strip()
     if not _is_valid_name(name):
-        await message.answer("❗ Fakultet nomini yozing.")
+        await message.answer(t(lang, "bad_faculty"))
         return
 
     data = await state.get_data()
@@ -72,7 +80,7 @@ async def process_faculty(message: Message, state: FSMContext, session: AsyncSes
     await state.update_data(faculty_name=name)
     await state.set_state(RegistrationStates.waiting_group)
     await message.answer(
-        "👥 <b>Guruhingiz?</b>\n\nTanlang yoki nomini yozing:",
+        t(lang, "ask_group"),
         parse_mode="HTML",
         reply_markup=_options_keyboard([g.name for g in groups]),
     )
@@ -85,9 +93,10 @@ async def process_group(
     current_user: User,
     session: AsyncSession,
 ) -> None:
+    lang = lang_of(current_user)
     name = (message.text or "").strip()
     if not _is_valid_name(name, min_length=1):
-        await message.answer("❗ Guruh nomini yozing.")
+        await message.answer(t(lang, "bad_group"))
         return
 
     data = await state.get_data()
@@ -105,24 +114,15 @@ async def process_group(
 
     await state.clear()
 
-    kb = get_admin_main_keyboard() if current_user.role == UserRole.ADMIN else get_user_main_keyboard()
-    profile_text = f"✅ <b>Tayyor!</b>\n\n🏛 {esc(univ.name)}\n🏢 {esc(faculty.name)}\n👥 {esc(group.name)}\n\n"
+    is_admin = current_user.role == UserRole.ADMIN
+    kb = get_admin_main_keyboard(lang) if is_admin else get_user_main_keyboard(lang)
+    profile_text = f"{t(lang, 'registered')}\n\n🏛 {esc(univ.name)}\n🏢 {esc(faculty.name)}\n👥 {esc(group.name)}\n\n"
 
     # Guruhdoshi jadvalni allaqachon kiritgan bo'lsa, rasm so'ramasdan darhol ishga tushadi
     schedules = await ScheduleService.get_schedules(session, group_id=group.id)
     if schedules:
-        await message.answer(
-            f"{profile_text}"
-            f"Guruhingiz jadvali tayyor, rasm yuborish shart emas. Eslatmalar yoqildi.",
-            parse_mode="HTML",
-            reply_markup=kb,
-        )
-        await message.answer(format_weekly_schedule(schedules), parse_mode="HTML")
+        await message.answer(f"{profile_text}{t(lang, 'group_ready')}", parse_mode="HTML", reply_markup=kb)
+        await message.answer(format_weekly_schedule(schedules, lang), parse_mode="HTML")
         return
 
-    await message.answer(
-        f"{profile_text}"
-        f"📸 Endi dars jadvali rasmini yuboring.",
-        parse_mode="HTML",
-        reply_markup=kb,
-    )
+    await message.answer(f"{profile_text}{t(lang, 'send_photo_now')}", parse_mode="HTML", reply_markup=kb)

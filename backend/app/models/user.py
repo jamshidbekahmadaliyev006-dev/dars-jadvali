@@ -1,5 +1,5 @@
 from typing import List, Optional
-from sqlalchemy import BigInteger, Boolean, Enum, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, Boolean, Enum, ForeignKey, Integer, String, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 from app.models.enums import UserRole
@@ -20,6 +20,8 @@ class User(Base, TimestampMixin):
         index=True,
     )
     language_code: Mapped[str] = mapped_column(String(10), default="uz", nullable=False)
+    # language_code avval Telegram'dan keladi, shuning uchun tanlov alohida belgilanadi
+    language_chosen: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Universitet bog'lanishlari (ixtiyoriy, keyingi bosqichlarda to'ldiriladi)

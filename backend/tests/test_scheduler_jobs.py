@@ -91,6 +91,7 @@ async def test_lesson_reminders_job(db_session: AsyncSession, monkeypatch, same_
     student = User(
         telegram_id=333444555,
         first_name="Temur",
+        language_code="ru",
         role=UserRole.USER,
         group_id=grp.id,
         university_id=univ.id,
@@ -119,3 +120,4 @@ async def test_lesson_reminders_job(db_session: AsyncSession, monkeypatch, same_
     assert len(logs) == 1
     assert logs[0].is_success is True
     assert "Web Dasturlash" in logs[0].body
+    assert "Занятие через" in logs[0].body
