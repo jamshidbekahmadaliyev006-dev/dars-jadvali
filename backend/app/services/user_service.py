@@ -38,10 +38,22 @@ class UserService:
         Qaytadi: (user, created: bool)
         """
         user = await UserService.get_by_telegram_id(session, telegram_id)
-        
-        # Admin huquqini tekshirish
+
+        # Admin huquqini tekshirish - FAQAT o'zgarmas telegram_id orqali (ADMIN_IDS).
+        # Username bo'yicha emas: Telegram username'ni istalgan kishi o'zgartira oladi,
+        # shuning uchun u hech qachon ruxsat berish mezoni sifatida ishlatilmaydi.
         is_system_admin = settings.is_admin(telegram_id)
         role = UserRole.ADMIN if is_system_admin else UserRole.USER
+
+        # Qulaylik uchun: agar ADMIN_USERNAMES'da ko'rsatilgan username bilan kirgan odam
+        # hali ADMIN_IDS'da yo'q bo'lsa, operatorga buni qo'lda to'g'rilash kerakligini
+        # eslatib qo'yamiz (bu faqat ma'lumot - hech qanday huquq bermaydi)
+        if not is_system_admin and username and username.lower() in settings.admin_username_list:
+            logger.warning(
+                f"User @{username} (telegram_id={telegram_id}) ADMIN_USERNAMES ro'yxatida bor, "
+                f"lekin ADMIN_IDS'da yo'q. Haqiqiy admin huquqi berish uchun bu telegram_id'ni "
+                f"ADMIN_IDS ga qo'shing."
+            )
 
         if user:
             # Mavjud user - profil ma'lumotlarini yangilash

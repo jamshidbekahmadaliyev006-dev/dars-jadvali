@@ -231,8 +231,116 @@ class GeminiAIProvider(BaseAIProvider):
         return await MockAIProvider().chat_student_assistant(query, context)
 
 
+class GroqAIProvider(BaseAIProvider):
+    """
+    Groq (OpenAI bilan mos chat completions API) orqali ishlovchi tezkor AI provayder.
+    GROQ_MODEL (masalan "openai/gpt-oss-120b") faqat matnli chat uchun ishlatiladi - bunday
+    modellar rasm qabul qila olmaydi, shuning uchun jadval screenshotini o'qish uchun
+    Groq'dagi alohida multimodal (vision) model ishlatiladi.
+    """
+
+    BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
+    VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+
+    def __init__(self, api_key: str, chat_model: str):
+        self.api_key = api_key
+        self.chat_model = chat_model
+
+    def _headers(self) -> Dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+    async def extract_schedule_from_image(self, image_bytes: bytes, filename: str = "schedule.jpg") -> ExtractedScheduleResult:
+        base64_data = base64.b64encode(image_bytes).decode("utf-8")
+        mime_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
+
+        prompt = (
+            "Ushbu universitet dars jadvali screenshotini diqqat bilan tahlil qiling. "
+            "Barcha darslarni aniqlab, FAQAT quyidagi JSON formatida javob qaytaring, boshqa hech qanday matn yozmang: "
+            '{"lessons": [{"day": "Dushanba", "subject": "Fan nomi", "teacher": "O\'qituvchi F.I.Sh.", '
+            '"start_time": "09:00", "end_time": "10:20", "building": "Bino nomi", "room": "Xona raqami", '
+            '"lesson_type": "LECTURE"}]}. '
+            "'day' qiymati Dushanba, Seshanba, Chorshanba, Payshanba, Juma yoki Shanba bo'lishi kerak. "
+            "'lesson_type' esa faqat LECTURE, PRACTICE, LAB, SEMINAR yoki OTHER bo'lishi mumkin. "
+            "Vaqtlarni albatta HH:MM formatida yozing."
+        )
+
+        payload = {
+            "model": self.VISION_MODEL,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{base64_data}"}},
+                    ],
+                }
+            ],
+            "temperature": 0.1,
+            "response_format": {"type": "json_object"},
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                res = await client.post(self.BASE_URL, headers=self._headers(), json=payload)
+                if res.status_code != 200:
+                    logger.error(f"Groq vision API error {res.status_code}: {res.text}")
+                    return await MockAIProvider().extract_schedule_from_image(image_bytes, filename)
+
+                resp_json = res.json()
+                content_text = resp_json["choices"][0]["message"]["content"]
+                parsed = json.loads(content_text)
+                raw_items = parsed.get("lessons", []) if isinstance(parsed, dict) else parsed
+                items = [ExtractedLessonItem(**item) for item in raw_items]
+                return ExtractedScheduleResult(
+                    lessons=items,
+                    confidence=0.85,
+                    warnings=None,
+                    raw_response=content_text,
+                )
+        except Exception as e:
+            logger.error(f"Groq extract error: {e}")
+            return await MockAIProvider().extract_schedule_from_image(image_bytes, filename)
+
+    async def chat_student_assistant(self, query: str, context: Dict[str, Any]) -> str:
+        system_instruction = (
+            "Sen talabalarga dars jadvali, vazifalar va o'qish rejalari bo'yicha yordam beruvchi "
+            "samimiy va aqlli 'UniNotify AI Yordamchisi'san. "
+            "Faqat berilgan talaba ma'lumotlari (context) ga tayangan holda o'zbek tilida aniq, "
+            "lo'nda va rag'batlantiruvchi tarzda javob ber. O'zingdan yolg'on dars yoki xona to'qima."
+        )
+        prompt = f"Kontekst:\n{json.dumps(context, ensure_ascii=False, indent=2)}\n\nTalaba savoli: {query}"
+
+        payload = {
+            "model": self.chat_model,
+            "messages": [
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.3,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                res = await client.post(self.BASE_URL, headers=self._headers(), json=payload)
+                if res.status_code == 200:
+                    data = res.json()
+                    return data["choices"][0]["message"]["content"]
+                logger.error(f"Groq chat API error {res.status_code}: {res.text}")
+        except Exception as e:
+            logger.error(f"Groq chat error: {e}")
+
+        # Fallback to smart rule-based mock
+        return await MockAIProvider().chat_student_assistant(query, context)
+
+
 def get_ai_provider() -> BaseAIProvider:
     """AI Provayder fabrikasi"""
-    if settings.AI_PROVIDER.lower() == "gemini" and settings.GEMINI_API_KEY:
+    provider = settings.AI_PROVIDER.lower()
+    if provider == "gemini" and settings.GEMINI_API_KEY:
         return GeminiAIProvider(api_key=settings.GEMINI_API_KEY)
+    if provider == "groq" and settings.GROQ_API_KEY:
+        return GroqAIProvider(api_key=settings.GROQ_API_KEY, chat_model=settings.GROQ_MODEL)
     return MockAIProvider()
