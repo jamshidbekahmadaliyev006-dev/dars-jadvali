@@ -9,11 +9,18 @@ from app.models.log import NotificationLog
 from app.models.schedule import ReminderSetting, Schedule
 from app.models.university import Building, Faculty, Group, Room, Subject, University
 from app.models.user import User
+from app.scheduler import jobs as scheduler_jobs
 from app.scheduler.jobs import check_and_send_lesson_reminders
 
 
 @pytest.mark.asyncio
-async def test_lesson_reminders_job(db_session: AsyncSession):
+async def test_lesson_reminders_job(db_session: AsyncSession, monkeypatch):
+    # Scheduler ishi odatda ishlab chiqarish bazasiga ulanadigan AsyncSessionLocal'dan
+    # foydalanadi. Testda esa shu bir xil in-memory test bazasini ishlatishi uchun,
+    # modul darajasidagi session factory'ni testning o'ziga moslashtiramiz - aks holda
+    # job hali yaratilmagan haqiqiy faylga ulanib, "no such table" xatosi bilan yiqiladi.
+    monkeypatch.setattr(scheduler_jobs, "AsyncSessionLocal", lambda: db_session)
+
     tz = pytz.timezone(settings.TIMEZONE)
     now = datetime.now(tz)
     weekday_idx = now.weekday()

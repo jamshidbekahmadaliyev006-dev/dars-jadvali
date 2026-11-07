@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, require_admin
 from app.core.database import get_db
 from app.models.user import User
-from app.schemas.user import UserResponse, UserRoleUpdate
+from app.schemas.user import UserResponse, UserRoleUpdate, UserUpdate
 from app.services.user_service import UserService
 
 router = APIRouter(prefix="/users", tags=["Users"])
@@ -16,6 +16,22 @@ async def get_my_profile(
 ):
     """Joriy autentifikatsiyadan o'tgan foydalanuvchi profilini olish"""
     return current_user
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_my_profile(
+    payload: UserUpdate,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Joriy foydalanuvchi o'z profilini (til, universitet, fakultet, guruh) yangilashi.
+    Mini App'dagi "Profil" bo'limi aynan shu endpoint orqali saqlanadi.
+    """
+    try:
+        return await UserService.update_my_profile(session, current_user, payload)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.get("", response_model=List[UserResponse])

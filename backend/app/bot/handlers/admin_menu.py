@@ -116,7 +116,17 @@ async def handle_approve_submission_callback(query: CallbackQuery, current_user:
     updated = await ScheduleService.review_submission(session, sub_id, current_user.id, review)
 
     if updated:
-        await query.message.edit_text(f"✅ <b>Ariza #{sub_id} muvaffaqiyatli tasdiqlandi!</b>", parse_mode="HTML")
+        if updated.admin_notes and "⚠️" in updated.admin_notes:
+            await query.message.edit_text(
+                f"✅ <b>Ariza #{sub_id} tasdiqlandi.</b>\n\n{updated.admin_notes}",
+                parse_mode="HTML",
+            )
+        else:
+            await query.message.edit_text(
+                f"✅ <b>Ariza #{sub_id} muvaffaqiyatli tasdiqlandi!</b>\n"
+                f"AI aniqlagan darslar guruh jadvaliga avtomatik qo'shildi va eslatmalar yoqildi.",
+                parse_mode="HTML",
+            )
         await query.answer("Tasdiqlandi!")
     else:
         await query.answer("Xatolik yuz berdi!", show_alert=True)

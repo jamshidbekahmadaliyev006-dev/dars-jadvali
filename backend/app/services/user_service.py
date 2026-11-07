@@ -5,6 +5,7 @@ from app.core.config import settings
 from app.core.logging import logger
 from app.models.enums import UserRole
 from app.models.user import User
+from app.schemas.user import UserUpdate
 
 
 class UserService:
@@ -88,6 +89,36 @@ class UserService:
         stmt = select(User).offset(skip).limit(limit).order_by(User.id.desc())
         result = await session.execute(stmt)
         return list(result.scalars().all())
+
+    @staticmethod
+    async def update_my_profile(session: AsyncSession, user: User, payload: UserUpdate) -> User:
+        """
+        Talabaning o'z profilini (til, universitet/fakultet/guruh) yangilashi.
+        Rol va faollik holati bu orqali o'zgartirilmaydi - xavfsizlik uchun faqat
+        admin API (/users/{id}/role) orqali amalga oshiriladi.
+        """
+        data = payload.model_dump(exclude_unset=True)
+        data.pop("is_active", None)
+
+        group_id = data.get("group_id")
+        if group_id:
+            # Noto'g'ri qo'lda yuborilgan university_id/faculty_id o'rniga guruhning
+            # haqiqiy universitet/fakultetiga avtomatik moslashtiramiz
+            from app.services.university_service import UniversityService
+
+            group = await UniversityService.get_group_by_id(session, group_id)
+            if not group:
+                raise ValueError("Tanlangan guruh topilmadi")
+            data["university_id"] = group.university_id
+            data["faculty_id"] = group.faculty_id
+
+        for key, value in data.items():
+            setattr(user, key, value)
+
+        await session.commit()
+        await session.refresh(user)
+        logger.info(f"User {user.telegram_id} updated own profile: {data}")
+        return user
 
     @staticmethod
     async def update_role(session: AsyncSession, user_id: int, new_role: UserRole) -> Optional[User]:

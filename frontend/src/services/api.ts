@@ -78,6 +78,13 @@ class ApiClient {
     return this.request<User>('/users/me');
   }
 
+  async updateMe(data: Partial<Pick<User, 'language_code' | 'university_id' | 'faculty_id' | 'group_id'>>): Promise<User> {
+    return this.request<User>('/users/me', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
   // --- Universities & Groups ---
   async getUniversities(): Promise<University[]> {
     return this.request<University[]>('/universities');

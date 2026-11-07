@@ -171,14 +171,23 @@ async def handle_settings(message: Message, current_user: User):
 # --- Dars jadvali screenshotini qabul qilish (Photo Handler) ---
 @router.message(F.photo)
 async def handle_schedule_photo_upload(message: Message, current_user: User, session: AsyncSession):
+    # Universitet va guruh biriktirilganligini tekshirish - bo'lmasa, soxta universitetga
+    # yuborilib, jadval hech qachon faollashmay qoladi
+    if not current_user.university_id or not current_user.group_id:
+        await message.answer(
+            "ℹ️ <b>Avval universitet va guruhingizni tanlashingiz kerak.</b>\n\n"
+            "Jadval screenshotini yuborishdan oldin Mini App orqali universitet, fakultet va "
+            "guruhingizni profilga biriktiring - aks holda AI aniqlagan darslar hech kimga ko'rinmaydi.",
+            parse_mode="HTML",
+            reply_markup=get_mini_app_inline_button("📱 Mini Appda profilni to'ldirish"),
+        )
+        return
+
     photo = message.photo[-1]  # eng yuqori sifatlisi
     file_id = photo.file_id
 
-    # Universitet biriktirilganligini tekshirish
-    univ_id = current_user.university_id or 1  # agar tanlanmagan bo'lsa default 1
-
     payload = ScheduleSubmissionCreate(
-        university_id=univ_id,
+        university_id=current_user.university_id,
         faculty_id=current_user.faculty_id,
         group_id=current_user.group_id,
         image_file_id=file_id,

@@ -1,12 +1,55 @@
 from datetime import datetime
 import json
 from typing import Any, Dict, List, Optional
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from app.core.logging import logger
 from app.models.enums import DayOfWeek, LessonType, SubmissionStatus
 from app.models.schedule import ReminderSetting, Schedule, ScheduleSubmission
+from app.models.university import Building, Room, Subject, Teacher
 from app.schemas.schedule import ReminderSettingUpdate, ScheduleCreate, ScheduleSubmissionCreate, ScheduleSubmissionReview, ScheduleUpdate
+
+# AI OCR dars jadvalidan qaytargan kun nomlarini (o'zbek/rus/ingliz) DayOfWeek enumiga bog'lash
+DAY_NAME_MAP: Dict[str, DayOfWeek] = {
+    # O'zbekcha
+    "dushanba": DayOfWeek.MONDAY,
+    "seshanba": DayOfWeek.TUESDAY,
+    "chorshanba": DayOfWeek.WEDNESDAY,
+    "payshanba": DayOfWeek.THURSDAY,
+    "juma": DayOfWeek.FRIDAY,
+    "shanba": DayOfWeek.SATURDAY,
+    "yakshanba": DayOfWeek.SUNDAY,
+    # Inglizcha
+    "monday": DayOfWeek.MONDAY,
+    "tuesday": DayOfWeek.TUESDAY,
+    "wednesday": DayOfWeek.WEDNESDAY,
+    "thursday": DayOfWeek.THURSDAY,
+    "friday": DayOfWeek.FRIDAY,
+    "saturday": DayOfWeek.SATURDAY,
+    "sunday": DayOfWeek.SUNDAY,
+    # Ruscha (ko'p jadvallarda uchraydi)
+    "понедельник": DayOfWeek.MONDAY,
+    "вторник": DayOfWeek.TUESDAY,
+    "среда": DayOfWeek.WEDNESDAY,
+    "четверг": DayOfWeek.THURSDAY,
+    "пятница": DayOfWeek.FRIDAY,
+    "суббота": DayOfWeek.SATURDAY,
+    "воскресенье": DayOfWeek.SUNDAY,
+}
+
+
+def resolve_day_of_week(raw: Optional[str]) -> Optional[DayOfWeek]:
+    """AI tomonidan qaytarilgan erkin matndagi kun nomini DayOfWeek enumiga aylantirish"""
+    if not raw:
+        return None
+    key = raw.strip().lower()
+    if key in DAY_NAME_MAP:
+        return DAY_NAME_MAP[key]
+    upper = raw.strip().upper()
+    if upper in DayOfWeek.__members__:
+        return DayOfWeek[upper]
+    return None
 
 
 class ScheduleService:
@@ -155,28 +198,170 @@ class ScheduleService:
         submission.status = review.status
         submission.reviewer_id = reviewer_id
         submission.admin_notes = review.admin_notes
-
-        # Agar APPROVED bo'lsa va tasdiqlangan darslar mavjud bo'lsa, ularni bazaga saqlash
-        if review.status == SubmissionStatus.APPROVED and review.approved_schedules and submission.group_id:
-            for item in review.approved_schedules:
-                day_str = item.get("day_of_week", "MONDAY").upper()
-                day_enum = DayOfWeek[day_str] if day_str in DayOfWeek.__members__ else DayOfWeek.MONDAY
-                lesson_type_str = item.get("lesson_type", "LECTURE").upper()
-                lesson_type_enum = LessonType[lesson_type_str] if lesson_type_str in LessonType.__members__ else LessonType.LECTURE
-
-                sched = Schedule(
-                    university_id=submission.university_id,
-                    group_id=submission.group_id,
-                    subject_id=item["subject_id"],
-                    teacher_id=item.get("teacher_id"),
-                    room_id=item.get("room_id"),
-                    day_of_week=day_enum,
-                    start_time=item["start_time"],
-                    end_time=item["end_time"],
-                    lesson_type=lesson_type_enum,
-                )
-                session.add(sched)
-
         await session.commit()
+
+        if review.status == SubmissionStatus.APPROVED:
+            if not submission.group_id:
+                submission.admin_notes = (
+                    f"{review.admin_notes or ''}\n"
+                    "⚠️ Tasdiqlandi, lekin guruh biriktirilmagani uchun darslar jadvalga qo'shilmadi."
+                ).strip()
+                await session.commit()
+            elif review.approved_schedules:
+                # Admin tomonidan aniq ID lar bilan qo'lda tuzatilgan darslar ro'yxati
+                for item in review.approved_schedules:
+                    day_str = item.get("day_of_week", "MONDAY").upper()
+                    day_enum = DayOfWeek[day_str] if day_str in DayOfWeek.__members__ else DayOfWeek.MONDAY
+                    lesson_type_str = item.get("lesson_type", "LECTURE").upper()
+                    lesson_type_enum = LessonType[lesson_type_str] if lesson_type_str in LessonType.__members__ else LessonType.LECTURE
+
+                    sched = Schedule(
+                        university_id=submission.university_id,
+                        group_id=submission.group_id,
+                        subject_id=item["subject_id"],
+                        teacher_id=item.get("teacher_id"),
+                        room_id=item.get("room_id"),
+                        day_of_week=day_enum,
+                        start_time=item["start_time"],
+                        end_time=item["end_time"],
+                        lesson_type=lesson_type_enum,
+                    )
+                    session.add(sched)
+                await session.commit()
+            elif submission.ai_extracted_json:
+                # Admin hech qanday qo'lda tuzatish bermadi - AI natijasini avtomatik
+                # fan/o'qituvchi/xona nomlari orqali bazaga bog'lab, jadvalni faollashtiramiz
+                try:
+                    created = await ScheduleService.resolve_and_create_schedules_from_extraction(session, submission)
+                    if not created:
+                        submission.admin_notes = (
+                            f"{review.admin_notes or ''}\n"
+                            "⚠️ Tasdiqlandi, lekin AI natijasidan birorta ham dars avtomatik aniqlanmadi."
+                        ).strip()
+                        await session.commit()
+                except Exception as e:
+                    logger.error(f"Auto-resolve schedules failed for submission {submission.id}: {e}")
+                    submission.admin_notes = (
+                        f"{review.admin_notes or ''}\n"
+                        f"⚠️ Tasdiqlandi, lekin darslarni avtomatik yaratishda xatolik: {e}"
+                    ).strip()
+                    await session.commit()
+
         await session.refresh(submission)
         return submission
+
+    # --- AI OCR natijasini real DB yozuvlariga avtomatik bog'lash ---
+    @staticmethod
+    async def _get_or_create_subject(session: AsyncSession, university_id: int, name: str) -> Subject:
+        stmt = select(Subject).where(Subject.university_id == university_id, func.lower(Subject.name) == name.lower())
+        result = await session.execute(stmt)
+        obj = result.scalar_one_or_none()
+        if obj:
+            return obj
+        obj = Subject(university_id=university_id, name=name)
+        session.add(obj)
+        await session.flush()
+        return obj
+
+    @staticmethod
+    async def _get_or_create_teacher(session: AsyncSession, university_id: int, full_name: str) -> Teacher:
+        stmt = select(Teacher).where(Teacher.university_id == university_id, func.lower(Teacher.full_name) == full_name.lower())
+        result = await session.execute(stmt)
+        obj = result.scalar_one_or_none()
+        if obj:
+            return obj
+        obj = Teacher(university_id=university_id, full_name=full_name)
+        session.add(obj)
+        await session.flush()
+        return obj
+
+    @staticmethod
+    async def _get_or_create_building(session: AsyncSession, university_id: int, name: str) -> Building:
+        stmt = select(Building).where(Building.university_id == university_id, func.lower(Building.name) == name.lower())
+        result = await session.execute(stmt)
+        obj = result.scalar_one_or_none()
+        if obj:
+            return obj
+        obj = Building(university_id=university_id, name=name)
+        session.add(obj)
+        await session.flush()
+        return obj
+
+    @staticmethod
+    async def _get_or_create_room(session: AsyncSession, building_id: int, number: str) -> Room:
+        stmt = select(Room).where(Room.building_id == building_id, func.lower(Room.number) == number.lower())
+        result = await session.execute(stmt)
+        obj = result.scalar_one_or_none()
+        if obj:
+            return obj
+        obj = Room(building_id=building_id, number=number)
+        session.add(obj)
+        await session.flush()
+        return obj
+
+    @staticmethod
+    async def resolve_and_create_schedules_from_extraction(
+        session: AsyncSession,
+        submission: ScheduleSubmission,
+    ) -> List[Schedule]:
+        """
+        AI OCR orqali ajratilgan (matn ko'rinishidagi fan/o'qituvchi/bino/xona nomlari bilan)
+        darslar ro'yxatini tizimdagi haqiqiy yozuvlarga bog'lab (topilmasa avtomatik yaratib),
+        guruh uchun tasdiqlangan Schedule qatorlarini hosil qiladi.
+        """
+        if not submission.group_id:
+            raise ValueError("Guruh biriktirilmagan")
+        if not submission.ai_extracted_json:
+            raise ValueError("AI tahlil natijasi topilmadi")
+
+        try:
+            lessons = json.loads(submission.ai_extracted_json)
+        except Exception as e:
+            raise ValueError(f"AI natijasini o'qishda xatolik: {e}")
+
+        created: List[Schedule] = []
+        for item in lessons:
+            day_enum = resolve_day_of_week(item.get("day"))
+            subject_name = (item.get("subject") or "").strip()
+            start_time = (item.get("start_time") or "").strip()
+            end_time = (item.get("end_time") or "").strip()
+
+            if not day_enum or not subject_name or not start_time or not end_time:
+                # Noto'liq yoki tanilmagan qator - xavfsiz tarzda o'tkazib yuboramiz
+                continue
+
+            subject = await ScheduleService._get_or_create_subject(session, submission.university_id, subject_name)
+
+            teacher = None
+            teacher_name = (item.get("teacher") or "").strip()
+            if teacher_name:
+                teacher = await ScheduleService._get_or_create_teacher(session, submission.university_id, teacher_name)
+
+            room = None
+            room_number = (item.get("room") or "").strip()
+            if room_number:
+                building_name = (item.get("building") or "").strip() or "Bosh bino"
+                building = await ScheduleService._get_or_create_building(session, submission.university_id, building_name)
+                room = await ScheduleService._get_or_create_room(session, building.id, room_number)
+
+            lesson_type_str = (item.get("lesson_type") or "LECTURE").upper()
+            lesson_type_enum = LessonType[lesson_type_str] if lesson_type_str in LessonType.__members__ else LessonType.LECTURE
+
+            sched = Schedule(
+                university_id=submission.university_id,
+                group_id=submission.group_id,
+                subject_id=subject.id,
+                teacher_id=teacher.id if teacher else None,
+                room_id=room.id if room else None,
+                day_of_week=day_enum,
+                start_time=start_time,
+                end_time=end_time,
+                lesson_type=lesson_type_enum,
+            )
+            session.add(sched)
+            created.append(sched)
+
+        await session.commit()
+        for s in created:
+            await session.refresh(s)
+        return created

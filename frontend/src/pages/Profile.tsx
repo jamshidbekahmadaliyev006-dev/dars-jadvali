@@ -36,10 +36,20 @@ export const Profile: React.FC = () => {
     }
   }, [selectedUniv]);
 
-  const handleSaveAcademic = () => {
+  const [savingAcademic, setSavingAcademic] = useState(false);
+
+  const handleSaveAcademic = async () => {
     tg.haptic('medium');
-    updateUserGroup(selectedUniv, selectedFac, selectedGrp);
-    alert('Universitet va guruh muvaffaqiyatli saqlandi!');
+    setSavingAcademic(true);
+    try {
+      await updateUserGroup(selectedUniv, selectedFac, selectedGrp);
+      tg.haptic('heavy');
+      alert('Universitet va guruh muvaffaqiyatli saqlandi!');
+    } catch (err: any) {
+      alert(`Xatolik: ${err.message || 'Saqlashda muammo yuz berdi'}`);
+    } finally {
+      setSavingAcademic(false);
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -140,9 +150,10 @@ export const Profile: React.FC = () => {
 
         <button
           onClick={handleSaveAcademic}
-          className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
+          disabled={savingAcademic}
+          className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold transition shadow-sm"
         >
-          Ma'lumotlarni saqlash
+          {savingAcademic ? 'Saqlanmoqda...' : "Ma'lumotlarni saqlash"}
         </button>
       </div>
 

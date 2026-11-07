@@ -7,14 +7,14 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   refreshUser: () => Promise<void>;
-  updateUserGroup: (univId: number, facId?: number, grpId?: number) => void;
+  updateUserGroup: (univId: number, facId?: number, grpId?: number) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
   refreshUser: async () => {},
-  updateUserGroup: () => {},
+  updateUserGroup: async () => {},
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -77,15 +77,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateUserGroup = (univId: number, facId?: number, grpId?: number) => {
-    if (user) {
-      setUser({
-        ...user,
-        university_id: univId,
-        faculty_id: facId,
-        group_id: grpId,
-      });
-    }
+  const updateUserGroup = async (univId: number, facId?: number, grpId?: number) => {
+    // Backendga saqlab, so'ng joriy foydalanuvchini yangilangan ma'lumot bilan yuritish -
+    // avvalgi versiya faqat lokal state'ni o'zgartirardi va sahifa qayta ochilganda yo'qolardi
+    const updated = await api.updateMe({
+      university_id: univId,
+      faculty_id: facId,
+      group_id: grpId,
+    });
+    setUser(updated);
   };
 
   useEffect(() => {
