@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.api_router import api_router
-from app.bot.bot_instance import get_bot
+from app.bot.bot_instance import get_bot, setup_mini_app_menu_button
 from app.bot.dispatcher import setup_dispatcher
 from app.core.config import settings
 from app.core.database import close_db, init_db
@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
     # 3. Telegram Botni ishga tushirish (agar token to'g'ri sozlangan bo'lsa)
     bot = get_bot()
     if bot:
+        await setup_mini_app_menu_button(bot)
         dp = setup_dispatcher()
         logger.info("Starting Telegram Bot polling in background...")
         # Pollingni alohida asyncio task sifatida boshlash
