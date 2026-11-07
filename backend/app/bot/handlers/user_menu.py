@@ -11,7 +11,7 @@ from app.bot.handlers.registration import start_registration
 from app.bot.states import ReminderStates
 from app.core.config import settings
 from app.core.logging import logger
-from app.models.enums import DayOfWeek, SubmissionStatus
+from app.models.enums import DayOfWeek, SubmissionStatus, UserRole
 from app.models.schedule import Schedule, ScheduleSubmission
 from app.models.task import PersonalTask
 from app.models.user import User
@@ -147,25 +147,41 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
             except Exception:
                 pass
 
-        # Avtomatik tasdiqlash - admin kutilmasdan, AI natijasi darhol haqiqiy darslarga aylantiriladi
-        review = ScheduleSubmissionReview(
-            status=SubmissionStatus.APPROVED,
-            admin_notes="Avtomatik tasdiqlandi (AI, talaba tomonidan yuborilgan)",
-        )
-        approved = await ScheduleService.review_submission(session, submission.id, current_user.id, review)
+        # Avtomatik tasdiqlash FAQAT shu guruh uchun hali birorta ham dars kiritilmagan bo'lsa
+        # (ya'ni guruhni birinchi bo'lib shu talaba "ochyapti") - aks holda, guruh jadvali
+        # allaqachon mavjud bo'lsa, uni istalgan a'zo screenshot yuborib osongina buzib
+        # qo'ymasligi uchun admin tasdiqlashini kutadi.
+        existing_schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
+        is_admin = current_user.role == UserRole.ADMIN
+        can_auto_approve = is_admin or not existing_schedules
 
-        warning_note = ""
-        if approved and approved.admin_notes and "⚠️" in approved.admin_notes:
-            warning_note = f"\n\n{approved.admin_notes.strip()}"
+        if can_auto_approve:
+            review = ScheduleSubmissionReview(
+                status=SubmissionStatus.APPROVED,
+                admin_notes="Avtomatik tasdiqlandi (guruh uchun birinchi jadval / admin)",
+            )
+            approved = await ScheduleService.review_submission(session, submission.id, current_user.id, review)
 
-        await loading_msg.edit_text(
-            f"✅ <b>Jadval muvaffaqiyatli tahlil qilindi va faollashtirildi!</b>\n"
-            f"🔍 <b>AI aniqlagan darslar soni:</b> {lessons_count} ta\n\n"
-            f"Endi <b>📖 Bugungi darslar</b> va <b>📆 Ertangi darslar</b> bo'limlaridan "
-            f"ko'rishingiz, shuningdek darsdan oldin avtomatik eslatma olishingiz mumkin."
-            f"{warning_note}",
-            parse_mode="HTML",
-        )
+            warning_note = ""
+            if approved and approved.admin_notes and "⚠️" in approved.admin_notes:
+                warning_note = f"\n\n{approved.admin_notes.strip()}"
+
+            await loading_msg.edit_text(
+                f"✅ <b>Jadval muvaffaqiyatli tahlil qilindi va faollashtirildi!</b>\n"
+                f"🔍 <b>AI aniqlagan darslar soni:</b> {lessons_count} ta\n\n"
+                f"Endi <b>📖 Bugungi darslar</b> va <b>📆 Ertangi darslar</b> bo'limlaridan "
+                f"ko'rishingiz, shuningdek darsdan oldin avtomatik eslatma olishingiz mumkin."
+                f"{warning_note}",
+                parse_mode="HTML",
+            )
+        else:
+            await loading_msg.edit_text(
+                f"✅ <b>Jadval tahlil qilindi!</b> ({lessons_count} ta dars aniqlandi)\n\n"
+                f"⏳ Sizning guruhingiz uchun jadval allaqachon mavjud, shuning uchun bu "
+                f"o'zgartirish xavfsizlik uchun <b>administrator tasdig'ini</b> kutadi - "
+                f"tasdiqlangach, barcha guruhdoshlaringizga ko'rinadi.",
+                parse_mode="HTML",
+            )
     except Exception as e:
         logger.error(f"Error processing bot photo submission: {e}")
         await loading_msg.edit_text(
