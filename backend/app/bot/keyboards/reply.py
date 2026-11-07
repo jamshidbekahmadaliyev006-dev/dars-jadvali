@@ -17,10 +17,13 @@ def get_user_main_keyboard(mini_app_url: str = settings.MINI_APP_URL) -> ReplyKe
         ],
         [
             KeyboardButton(text="📅 Dars jadvalim"),
-            KeyboardButton(text="📤 Jadval yuborish"),
+            KeyboardButton(text="📝 Vazifalarim"),
         ],
         [
+            KeyboardButton(text="📤 Jadval yuborish"),
             KeyboardButton(text="📊 Jadval holati"),
+        ],
+        [
             KeyboardButton(text="⚙️ Sozlamalar"),
         ],
     ]

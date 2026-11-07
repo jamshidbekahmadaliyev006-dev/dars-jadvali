@@ -1,6 +1,6 @@
 import os
 from functools import lru_cache
-from typing import List
+from typing import List, Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -25,8 +25,12 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
 
-    # Localization & Timezone
+    # Timezone
     TIMEZONE: str = "Asia/Tashkent"
+
+    # AI Provider Settings
+    AI_PROVIDER: str = Field(default="mock", description="AI Provider: mock, gemini, openai")
+    GEMINI_API_KEY: Optional[str] = Field(default=None, description="Google Gemini API Key")
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),

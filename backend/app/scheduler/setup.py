@@ -17,10 +17,19 @@ def get_scheduler() -> AsyncIOScheduler:
 
 async def start_scheduler() -> None:
     """Background task schedulerni ishga tushirish"""
+    from app.scheduler.jobs import check_and_send_lesson_reminders
+
     sched = get_scheduler()
     if not sched.running:
+        sched.add_job(
+            check_and_send_lesson_reminders,
+            "interval",
+            seconds=60,
+            id="lesson_reminders_job",
+            replace_existing=True,
+        )
         sched.start()
-        logger.info(f"APScheduler started with timezone: {settings.TIMEZONE}")
+        logger.info(f"APScheduler started with timezone: {settings.TIMEZONE} and 60s reminder interval.")
 
 
 async def stop_scheduler() -> None:

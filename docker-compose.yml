@@ -1,0 +1,56 @@
+services:
+  # PostgreSQL ma'lumotlar bazasi
+  postgres:
+    image: postgres:16-alpine
+    container_name: uninotify-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-uninotify_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-uninotify_secret_password}
+      POSTGRES_DB: ${POSTGRES_DB:-uninotify_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-uninotify_user} -d ${POSTGRES_DB:-uninotify_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend & Telegram Bot
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: uninotify-backend
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-uninotify_user}:${POSTGRES_PASSWORD:-uninotify_secret_password}@postgres:5432/${POSTGRES_DB:-uninotify_db}
+      BOT_TOKEN: ${BOT_TOKEN:-}
+      ADMIN_IDS: ${ADMIN_IDS:-}
+      SECRET_KEY: ${SECRET_KEY:-super-secret-key-production-uninotify}
+      TIMEZONE: ${TIMEZONE:-Asia/Tashkent}
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      MINI_APP_URL: ${MINI_APP_URL:-http://localhost:3000}
+    ports:
+      - "8000:8000"
+
+  # Telegram Mini App Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: uninotify-frontend
+    restart: always
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_URL=http://localhost:8000/api/v1
+
+volumes:
+  postgres_data:
