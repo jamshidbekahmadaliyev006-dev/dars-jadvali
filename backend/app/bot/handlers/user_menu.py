@@ -2,21 +2,34 @@ from datetime import datetime
 import json
 import pytz
 from aiogram import F, Router
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.bot.keyboards.inline import get_mini_app_inline_button
+from app.bot.handlers.registration import start_registration
+from app.bot.states import ReminderStates
 from app.core.config import settings
 from app.core.logging import logger
 from app.models.enums import DayOfWeek, SubmissionStatus
 from app.models.schedule import Schedule, ScheduleSubmission
 from app.models.task import PersonalTask
 from app.models.user import User
-from app.schemas.schedule import ScheduleSubmissionCreate
+from app.schemas.schedule import ReminderSettingUpdate, ScheduleSubmissionCreate, ScheduleSubmissionReview
 from app.services.ai_service import AIService
 from app.services.schedule_service import ScheduleService
 
 router = Router(name="user_menu")
+
+DAY_LABELS_UZ = {
+    DayOfWeek.MONDAY: "Dushanba",
+    DayOfWeek.TUESDAY: "Seshanba",
+    DayOfWeek.WEDNESDAY: "Chorshanba",
+    DayOfWeek.THURSDAY: "Payshanba",
+    DayOfWeek.FRIDAY: "Juma",
+    DayOfWeek.SATURDAY: "Shanba",
+    DayOfWeek.SUNDAY: "Yakshanba",
+}
 
 
 def get_today_tomorrow_enums():
@@ -28,14 +41,9 @@ def get_today_tomorrow_enums():
 
 
 @router.message(F.text == "📖 Bugungi darslar")
-async def handle_today_lessons(message: Message, current_user: User, session: AsyncSession):
+async def handle_today_lessons(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
     if not current_user.group_id:
-        await message.answer(
-            "ℹ️ <b>Siz hali o'z guruhingizni biriktirmagansiz.</b>\n\n"
-            "Dars jadvalini ko'rish uchun avval Mini App orqali universitet va guruhingizni tanlang.",
-            parse_mode="HTML",
-            reply_markup=get_mini_app_inline_button("📱 Mini Appda guruh tanlash"),
-        )
+        await start_registration(message, state)
         return
 
     today_enum, _ = get_today_tomorrow_enums()
@@ -43,12 +51,12 @@ async def handle_today_lessons(message: Message, current_user: User, session: As
 
     if not schedules:
         await message.answer(
-            f"📅 <b>Bugun ({today_enum.value.capitalize()}) darslar mavjud emas yoki dam olish kuni!</b>",
+            f"📅 <b>Bugun ({DAY_LABELS_UZ[today_enum]}) darslar mavjud emas yoki dam olish kuni!</b>",
             parse_mode="HTML",
         )
         return
 
-    lines = [f"📅 <b>Bugungi darslar ({today_enum.value}):</b>\n"]
+    lines = [f"📅 <b>Bugungi darslar ({DAY_LABELS_UZ[today_enum]}):</b>\n"]
     for s in schedules:
         subj = s.subject.name if s.subject else "Fan"
         teacher = f" | {s.teacher.full_name}" if s.teacher else ""
@@ -59,13 +67,9 @@ async def handle_today_lessons(message: Message, current_user: User, session: As
 
 
 @router.message(F.text == "📆 Ertangi darslar")
-async def handle_tomorrow_lessons(message: Message, current_user: User, session: AsyncSession):
+async def handle_tomorrow_lessons(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
     if not current_user.group_id:
-        await message.answer(
-            "ℹ️ <b>Siz hali o'z guruhingizni tanlamagansiz.</b>",
-            parse_mode="HTML",
-            reply_markup=get_mini_app_inline_button(),
-        )
+        await start_registration(message, state)
         return
 
     _, tomorrow_enum = get_today_tomorrow_enums()
@@ -73,12 +77,12 @@ async def handle_tomorrow_lessons(message: Message, current_user: User, session:
 
     if not schedules:
         await message.answer(
-            f"📆 <b>Ertaga ({tomorrow_enum.value.capitalize()}) darslar mavjud emas.</b>",
+            f"📆 <b>Ertaga ({DAY_LABELS_UZ[tomorrow_enum]}) darslar mavjud emas.</b>",
             parse_mode="HTML",
         )
         return
 
-    lines = [f"📆 <b>Ertangi darslar ({tomorrow_enum.value}):</b>\n"]
+    lines = [f"📆 <b>Ertangi darslar ({DAY_LABELS_UZ[tomorrow_enum]}):</b>\n"]
     for s in schedules:
         subj = s.subject.name if s.subject else "Fan"
         room = f" | {s.room.number}-xona" if s.room else ""
@@ -87,100 +91,27 @@ async def handle_tomorrow_lessons(message: Message, current_user: User, session:
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 
-@router.message(F.text == "📝 Vazifalarim")
-async def handle_my_tasks(message: Message, current_user: User, session: AsyncSession):
-    stmt = select(PersonalTask).where(PersonalTask.user_id == current_user.id, PersonalTask.is_completed == False).limit(5)
-    res = await session.execute(stmt)
-    tasks = res.scalars().all()
-
-    if not tasks:
-        await message.answer(
-            "✅ <b>Sizda barcha vazifalar bajarilgan!</b>\n\nYangi vazifalarni Mini App orqali qo'shishingiz mumkin.",
-            parse_mode="HTML",
-            reply_markup=get_mini_app_inline_button("📱 Mini Appda vazifa qo'shish"),
-        )
+@router.message(F.text == "📤 Jadval yuborish")
+async def handle_send_schedule_prompt(message: Message, current_user: User, state: FSMContext):
+    if not current_user.group_id:
+        await start_registration(message, state)
         return
 
-    lines = ["📝 <b>Sizning faol vazifalaringiz:</b>\n"]
-    for t in tasks:
-        p_icon = "🔴" if t.priority.value == "HIGH" else "🟡" if t.priority.value == "MEDIUM" else "🟢"
-        lines.append(f"{p_icon} <b>{t.title}</b>")
-
-    await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=get_mini_app_inline_button("📱 Vazifalarni boshqarish"))
-
-
-@router.message(F.text == "📅 Dars jadvalim")
-async def handle_my_schedule(message: Message, current_user: User):
-    await message.answer(
-        "📅 <b>To'liq haftalik dars jadvalingiz</b>ni ko'rish uchun quyidagi tugma orqali Mini App'ni oching:",
-        parse_mode="HTML",
-        reply_markup=get_mini_app_inline_button("📱 Dars jadvalini ochish"),
-    )
-
-
-@router.message(F.text == "📤 Jadval yuborish")
-async def handle_send_schedule_prompt(message: Message, current_user: User):
     await message.answer(
         "📸 <b>Dars jadvali screenshotini yuborish:</b>\n\n"
         "Jadval rasmini to'g'ridan-to'g'ri botga <b>rasm (photo)</b> holatida yuboring.\n"
-        "AI uni avtomatik tarzda tahlil qilib, darslarni ajratib oladi va tasdiqlash navbatiga qo'yadi.",
+        "AI uni avtomatik tahlil qiladi va darslaringizni darhol jadvalga qo'shib, "
+        "eslatmalarni yoqib qo'yadi.",
         parse_mode="HTML",
-    )
-
-
-@router.message(F.text == "📊 Jadval holati")
-async def handle_schedule_status(message: Message, current_user: User, session: AsyncSession):
-    stmt = select(ScheduleSubmission).where(ScheduleSubmission.user_id == current_user.id).order_by(ScheduleSubmission.id.desc()).limit(3)
-    res = await session.execute(stmt)
-    subs = res.scalars().all()
-
-    if not subs:
-        await message.answer(
-            "📊 <b>Siz yuborgan tasdiqlash kutilayotgan jadval mavjud emas.</b>\n"
-            "Yangi jadval yuborish uchun screenshot yuboring.",
-            parse_mode="HTML",
-        )
-        return
-
-    lines = ["📊 <b>Sizning oxirgi yuborgan jadvallaringiz:</b>\n"]
-    for s in subs:
-        st_icon = "⏳" if s.status == SubmissionStatus.PENDING else "🔍" if s.status == SubmissionStatus.ADMIN_REVIEW else "✅" if s.status == SubmissionStatus.APPROVED else "❌"
-        lines.append(f"{st_icon} <b>ID:</b> #{s.id} | <b>Holat:</b> {s.status.value}\n📅 Sana: {s.created_at.strftime('%Y-%m-%d %H:%M')}\n")
-
-    await message.answer("\n".join(lines), parse_mode="HTML")
-
-
-@router.message(F.text == "⚙️ Sozlamalar")
-async def handle_settings(message: Message, current_user: User):
-    role_title = "Administrator" if current_user.role.value == "ADMIN" else "Talaba"
-    info_text = (
-        f"⚙️ <b>Sizning profilingiz va sozlamalar:</b>\n\n"
-        f"👤 <b>Ism:</b> {current_user.first_name}\n"
-        f"🆔 <b>Telegram ID:</b> <code>{current_user.telegram_id}</code>\n"
-        f"🔰 <b>Rol:</b> {role_title}\n"
-        f"🌐 <b>Til:</b> {current_user.language_code}\n\n"
-        f"Eslatmalar, shaxsiy ma'lumotlar va guruhni sozlash uchun Mini App'dan foydalaning:"
-    )
-    await message.answer(
-        info_text,
-        parse_mode="HTML",
-        reply_markup=get_mini_app_inline_button("⚙️ Mini Appda sozlash"),
     )
 
 
 # --- Dars jadvali screenshotini qabul qilish (Photo Handler) ---
 @router.message(F.photo)
-async def handle_schedule_photo_upload(message: Message, current_user: User, session: AsyncSession):
-    # Universitet va guruh biriktirilganligini tekshirish - bo'lmasa, soxta universitetga
-    # yuborilib, jadval hech qachon faollashmay qoladi
+async def handle_schedule_photo_upload(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
+    # Universitet va guruh biriktirilganligini tekshirish - bo'lmasa, avval ro'yxatdan o'tkazamiz
     if not current_user.university_id or not current_user.group_id:
-        await message.answer(
-            "ℹ️ <b>Avval universitet va guruhingizni tanlashingiz kerak.</b>\n\n"
-            "Jadval screenshotini yuborishdan oldin Mini App orqali universitet, fakultet va "
-            "guruhingizni profilga biriktiring - aks holda AI aniqlagan darslar hech kimga ko'rinmaydi.",
-            parse_mode="HTML",
-            reply_markup=get_mini_app_inline_button("📱 Mini Appda profilni to'ldirish"),
-        )
+        await start_registration(message, state)
         return
 
     photo = message.photo[-1]  # eng yuqori sifatlisi
@@ -202,8 +133,6 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
     )
 
     try:
-        # AI orqali tahlil qilish
-        # Telegram faylini bot orqali yuklab olish yoki mock tahlil o'tkazish
         processed = await AIService.process_schedule_submission(
             session=session,
             submission_id=submission.id,
@@ -211,26 +140,125 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
             filename=f"tg_{file_id}.jpg",
         )
 
-        extracted_info = ""
+        lessons_count = 0
         if processed.ai_extracted_json:
             try:
-                lessons = json.loads(processed.ai_extracted_json)
-                extracted_info = f"\n\n🔍 <b>AI ajratgan darslar soni:</b> {len(lessons)} ta"
+                lessons_count = len(json.loads(processed.ai_extracted_json))
             except Exception:
                 pass
 
+        # Avtomatik tasdiqlash - admin kutilmasdan, AI natijasi darhol haqiqiy darslarga aylantiriladi
+        review = ScheduleSubmissionReview(
+            status=SubmissionStatus.APPROVED,
+            admin_notes="Avtomatik tasdiqlandi (AI, talaba tomonidan yuborilgan)",
+        )
+        approved = await ScheduleService.review_submission(session, submission.id, current_user.id, review)
+
+        warning_note = ""
+        if approved and approved.admin_notes and "⚠️" in approved.admin_notes:
+            warning_note = f"\n\n{approved.admin_notes.strip()}"
+
         await loading_msg.edit_text(
-            f"✅ <b>Jadval muvaffaqiyatli tahlil qilindi!</b>\n"
-            f"🆔 <b>Ariza raqami:</b> #{submission.id}\n"
-            f"📊 <b>Holati:</b> <code>ADMIN_REVIEW</code>{extracted_info}\n\n"
-            f"Administrator ma'lumotlarni tekshirib tasdiqlaganidan so'ng, jadvalingiz faollashadi va "
-            f"dars eslatmalari avtomatik yoqiladi.",
+            f"✅ <b>Jadval muvaffaqiyatli tahlil qilindi va faollashtirildi!</b>\n"
+            f"🔍 <b>AI aniqlagan darslar soni:</b> {lessons_count} ta\n\n"
+            f"Endi <b>📖 Bugungi darslar</b> va <b>📆 Ertangi darslar</b> bo'limlaridan "
+            f"ko'rishingiz, shuningdek darsdan oldin avtomatik eslatma olishingiz mumkin."
+            f"{warning_note}",
             parse_mode="HTML",
         )
     except Exception as e:
         logger.error(f"Error processing bot photo submission: {e}")
         await loading_msg.edit_text(
-            f"⚠️ <b>Jadval qabul qilindi (ID #{submission.id}), ammo AI avtomatik tahlilda xatolik yuz berdi.</b>\n"
-            f"Admin uni qo'lda tekshirib tasdiqlaydi.",
+            f"⚠️ <b>Jadval qabul qilindi (ID #{submission.id}), ammo AI tahlilida xatolik yuz berdi.</b>\n"
+            f"Birozdan so'ng qayta urinib ko'ring.",
             parse_mode="HTML",
         )
+
+
+@router.message(F.text == "📊 Jadval holati")
+async def handle_schedule_status(message: Message, current_user: User, session: AsyncSession):
+    stmt = select(ScheduleSubmission).where(ScheduleSubmission.user_id == current_user.id).order_by(ScheduleSubmission.id.desc()).limit(3)
+    res = await session.execute(stmt)
+    subs = res.scalars().all()
+
+    if not subs:
+        await message.answer(
+            "📊 <b>Siz hali jadval screenshotini yubormagansiz.</b>\n"
+            "Yangi jadval yuborish uchun <b>📤 Jadval yuborish</b> bo'limidan foydalaning.",
+            parse_mode="HTML",
+        )
+        return
+
+    lines = ["📊 <b>Sizning oxirgi yuborgan jadvallaringiz:</b>\n"]
+    for s in subs:
+        st_icon = "⏳" if s.status == SubmissionStatus.PENDING else "🔍" if s.status == SubmissionStatus.ADMIN_REVIEW else "✅" if s.status == SubmissionStatus.APPROVED else "❌"
+        lines.append(f"{st_icon} <b>ID:</b> #{s.id} | <b>Holat:</b> {s.status.value}\n📅 Sana: {s.created_at.strftime('%Y-%m-%d %H:%M')}\n")
+
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
+@router.message(F.text == "⏰ Eslatma sozlamalari")
+async def handle_reminder_settings_prompt(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
+    setting = await ScheduleService.get_or_create_reminder_setting(session, current_user.id)
+    await state.set_state(ReminderStates.waiting_minutes)
+    await message.answer(
+        f"⏰ <b>Dars eslatmasi sozlamalari</b>\n\n"
+        f"Hozirgi sozlama: har bir darsdan <b>{setting.minutes_before} daqiqa</b> oldin eslatma yuboriladi.\n\n"
+        f"Yangi qiymatni kiriting (1 dan 180 gacha, daqiqalarda), yoki hech narsa o'zgartirmaslik uchun "
+        f"shunchaki <b>0</b> deb yuboring:",
+        parse_mode="HTML",
+    )
+
+
+@router.message(ReminderStates.waiting_minutes, F.text)
+async def handle_reminder_minutes_input(message: Message, state: FSMContext, current_user: User, session: AsyncSession):
+    text = (message.text or "").strip()
+    if not text.isdigit():
+        await message.answer("❗ Iltimos, faqat son kiriting (masalan: 15).")
+        return
+
+    value = int(text)
+    await state.clear()
+
+    if value == 0:
+        await message.answer("ℹ️ Sozlama o'zgartirilmadi.")
+        return
+
+    if not (1 <= value <= 180):
+        await message.answer("❗ 1 dan 180 gacha bo'lgan qiymat kiriting. Qaytadan <b>⏰ Eslatma sozlamalari</b>ni bosing.", parse_mode="HTML")
+        return
+
+    await ScheduleService.update_reminder_setting(
+        session, current_user.id, ReminderSettingUpdate(is_enabled=True, minutes_before=value)
+    )
+    await message.answer(f"✅ Endi darslardan <b>{value} daqiqa</b> oldin eslatma yuboriladi.", parse_mode="HTML")
+
+
+@router.message(F.text == "👤 Profilim")
+async def handle_profile(message: Message, current_user: User, session: AsyncSession):
+    role_title = "Administrator" if current_user.role.value == "ADMIN" else "Talaba"
+
+    group_info = "— biriktirilmagan —"
+    if current_user.group_id:
+        from app.services.university_service import UniversityService
+
+        group = await UniversityService.get_group_by_id(session, current_user.group_id)
+        if group:
+            group_info = f"{group.name} ({group.university.name if group.university else ''})"
+
+    setting = await ScheduleService.get_or_create_reminder_setting(session, current_user.id)
+
+    info_text = (
+        f"👤 <b>Profilingiz:</b>\n\n"
+        f"🏷 <b>Ism:</b> {current_user.first_name}\n"
+        f"🔰 <b>Rol:</b> {role_title}\n"
+        f"👥 <b>Guruh:</b> {group_info}\n"
+        f"⏰ <b>Eslatma:</b> darsdan {setting.minutes_before} daqiqa oldin\n\n"
+        f"Universitet/fakultet/guruhni qayta kiritish kerak bo'lsa, <b>/register</b> buyrug'ini yuboring."
+    )
+    await message.answer(info_text, parse_mode="HTML")
+
+
+@router.message(Command("register"))
+async def handle_register_command(message: Message, state: FSMContext):
+    await start_registration(message, state)

@@ -30,7 +30,9 @@ async def lifespan(app: FastAPI):
     # 3. Telegram Botni ishga tushirish (agar token to'g'ri sozlangan bo'lsa)
     bot = get_bot()
     if bot:
-        await setup_mini_app_menu_button(bot)
+        # Mini App vaqtincha o'chirilgan - ro'yxatdan o'tish va jadval yuborish to'liq
+        # botning o'zida (matnli bosqichlar orqali) amalga oshadi. Qayta yoqish uchun:
+        # await setup_mini_app_menu_button(bot)
         dp = setup_dispatcher()
         logger.info("Starting Telegram Bot polling in background...")
         # Pollingni alohida asyncio task sifatida boshlash

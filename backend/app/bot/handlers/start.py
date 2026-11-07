@@ -1,6 +1,8 @@
 from aiogram import Router
 from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
+from app.bot.handlers.registration import start_registration
 from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
 from app.models.enums import UserRole
 from app.models.user import User
@@ -9,10 +11,11 @@ router = Router(name="start")
 
 
 @router.message(CommandStart())
-async def handle_start(message: Message, current_user: User, is_new_user: bool = False):
+async def handle_start(message: Message, state: FSMContext, current_user: User, is_new_user: bool = False):
     """
     /start buyrug'i handleri.
-    Foydalanuvchi roliga qarab tegishli menyuni ochadi.
+    Guruhi hali biriktirilmagan foydalanuvchi uchun ro'yxatdan o'tish (universitet/
+    fakultet/guruh) bosqichini boshlaydi, aks holda roliga mos menyuni ochadi.
     """
     greeting = "Assalomu alaykum"
     name = current_user.first_name or "Talaba"
@@ -21,28 +24,22 @@ async def handle_start(message: Message, current_user: User, is_new_user: bool =
         welcome_text = (
             f"👑 <b>{greeting}, Administrator {name}!</b>\n\n"
             f"UniNotify boshqaruv tizimiga xush kelibsiz.\n"
-            f"Bu yerdan universitetlar, jadvallar, screenshotlar va "
-            f"foydalanuvchilarni to'liq nazorat qilishingiz mumkin.\n\n"
-            f"Quyidagi boshqaruv menyusidan kerakli bo'limni tanlang:"
-        )
-        await message.answer(
-            welcome_text,
-            parse_mode="HTML",
-            reply_markup=get_admin_main_keyboard(),
+            f"Bu yerdan universitetlar, jadvallar va foydalanuvchilarni nazorat qilishingiz mumkin."
         )
     else:
         welcome_text = (
             f"🎓 <b>{greeting}, {name}!</b>\n\n"
             f"<b>UniNotify</b> — universitet talabalari uchun universal platformaga xush kelibsiz!\n\n"
             f"🚀 <b>Imkoniyatlar:</b>\n"
-            f"• Dars jadvalini qulay boshqarish\n"
-            f"• Darsdan 15 daqiqa oldin avtomatik eslatmalar\n"
-            f"• Jadval screenshotini AI orqali avtomatik aniqlash\n"
-            f"• Zamonaviy Telegram Mini App orqali shaxsiy reja va vazifalar\n\n"
-            f"Boshlash uchun pastdagi menyudan foydalaning yoki <b>UniNotify Mini App</b>'ni oching:"
+            f"• Dars jadvalini screenshot orqali avtomatik tanib olish\n"
+            f"• Darsdan necha daqiqa oldin xohlasangiz, shuncha vaqt oldin eslatma\n"
+            f"• Har doim qo'l ostida: bugungi va ertangi darslar"
         )
-        await message.answer(
-            welcome_text,
-            parse_mode="HTML",
-            reply_markup=get_user_main_keyboard(),
-        )
+
+    if not current_user.group_id:
+        await message.answer(welcome_text, parse_mode="HTML")
+        await start_registration(message, state)
+        return
+
+    kb = get_admin_main_keyboard() if current_user.role == UserRole.ADMIN else get_user_main_keyboard()
+    await message.answer(welcome_text, parse_mode="HTML", reply_markup=kb)

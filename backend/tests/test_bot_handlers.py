@@ -29,10 +29,12 @@ async def test_start_handler_for_student():
         first_name="Aziz",
         role=UserRole.USER,
         is_active=True,
+        group_id=1,  # ro'yxatdan o'tgan - registration oqimi ishga tushmasligi uchun
     )
     mock_msg = make_mock_message("/start", 12345)
+    mock_state = AsyncMock()
 
-    await handle_start(mock_msg, current_user=student_user)
+    await handle_start(mock_msg, current_user=student_user, state=mock_state)
 
     mock_msg.answer.assert_called_once()
     args, kwargs = mock_msg.answer.call_args
@@ -50,15 +52,37 @@ async def test_start_handler_for_admin():
         first_name="Adminbek",
         role=UserRole.ADMIN,
         is_active=True,
+        group_id=1,
     )
     mock_msg = make_mock_message("/start", 99999)
+    mock_state = AsyncMock()
 
-    await handle_start(mock_msg, current_user=admin_user)
+    await handle_start(mock_msg, current_user=admin_user, state=mock_state)
 
     mock_msg.answer.assert_called_once()
     args, kwargs = mock_msg.answer.call_args
     assert "Administrator Adminbek" in args[0]
     assert "UniNotify boshqaruv tizimiga xush kelibsiz" in args[0]
+
+
+@pytest.mark.asyncio
+async def test_start_handler_triggers_registration_when_no_group():
+    new_user = User(
+        id=3,
+        telegram_id=55555,
+        first_name="Yangi",
+        role=UserRole.USER,
+        is_active=True,
+        group_id=None,
+    )
+    mock_msg = make_mock_message("/start", 55555)
+    mock_state = AsyncMock()
+
+    await handle_start(mock_msg, current_user=new_user, state=mock_state)
+
+    # Avval xush kelibsiz, keyin ro'yxatdan o'tish (universitet so'rovi) yuboriladi
+    assert mock_msg.answer.call_count == 2
+    mock_state.set_state.assert_awaited_once()
 
 
 @pytest.mark.asyncio

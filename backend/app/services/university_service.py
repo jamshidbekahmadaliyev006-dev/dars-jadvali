@@ -1,5 +1,5 @@
 from typing import List, Optional
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.university import Building, Faculty, Group, Room, Subject, Teacher, University
 from app.schemas.university import (
@@ -154,3 +154,46 @@ class UniversityService:
         await session.commit()
         await session.refresh(teacher)
         return teacher
+
+    # --- Bot orqali o'z-o'zidan ro'yxatdan o'tish uchun: nom bo'yicha topish/yaratish ---
+    @staticmethod
+    async def get_or_create_university_by_name(session: AsyncSession, name: str) -> University:
+        name = name.strip()
+        stmt = select(University).where(func.lower(University.name) == name.lower())
+        result = await session.execute(stmt)
+        univ = result.scalar_one_or_none()
+        if univ:
+            return univ
+        univ = University(name=name)
+        session.add(univ)
+        await session.commit()
+        await session.refresh(univ)
+        return univ
+
+    @staticmethod
+    async def get_or_create_faculty_by_name(session: AsyncSession, university_id: int, name: str) -> Faculty:
+        name = name.strip()
+        stmt = select(Faculty).where(Faculty.university_id == university_id, func.lower(Faculty.name) == name.lower())
+        result = await session.execute(stmt)
+        faculty = result.scalar_one_or_none()
+        if faculty:
+            return faculty
+        faculty = Faculty(university_id=university_id, name=name)
+        session.add(faculty)
+        await session.commit()
+        await session.refresh(faculty)
+        return faculty
+
+    @staticmethod
+    async def get_or_create_group_by_name(session: AsyncSession, university_id: int, faculty_id: int, name: str) -> Group:
+        name = name.strip()
+        stmt = select(Group).where(Group.faculty_id == faculty_id, func.lower(Group.name) == name.lower())
+        result = await session.execute(stmt)
+        group = result.scalar_one_or_none()
+        if group:
+            return group
+        group = Group(university_id=university_id, faculty_id=faculty_id, name=name)
+        session.add(group)
+        await session.commit()
+        await session.refresh(group)
+        return group
