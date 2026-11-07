@@ -118,3 +118,85 @@ async def test_admin_statistics_permission_granted(db_session: AsyncSession):
     args, _ = mock_msg.answer.call_args
     assert "UniNotify Tizim Statistikasi" in args[0]
     assert "Foydalanuvchilar" in args[0]
+
+
+@pytest.mark.asyncio
+async def test_registration_shows_existing_group_schedule(db_session: AsyncSession):
+    from app.bot.handlers.registration import process_group
+    from app.models.enums import DayOfWeek
+    from app.models.schedule import Schedule
+    from app.models.university import Faculty, Group, Subject, University
+
+    univ = University(name="TATU")
+    db_session.add(univ)
+    await db_session.commit()
+    fac = Faculty(name="Kiberxavfsizlik", university_id=univ.id)
+    subj = Subject(name="Tarmoq xavfsizligi", university_id=univ.id)
+    db_session.add_all([fac, subj])
+    await db_session.commit()
+    grp = Group(name="KX-21", university_id=univ.id, faculty_id=fac.id)
+    db_session.add(grp)
+    await db_session.commit()
+    db_session.add(Schedule(
+        university_id=univ.id, group_id=grp.id, subject_id=subj.id,
+        day_of_week=DayOfWeek.MONDAY, start_time="08:00", end_time="09:20",
+    ))
+    classmate = User(telegram_id=4242, first_name="Guruhdosh", role=UserRole.USER, is_active=True)
+    db_session.add(classmate)
+    await db_session.commit()
+
+    mock_msg = make_mock_message("kx-21", 4242)
+    mock_state = AsyncMock()
+    mock_state.get_data.return_value = {"university_name": "tatu", "faculty_name": "kiberxavfsizlik"}
+
+    await process_group(mock_msg, mock_state, classmate, db_session)
+
+    assert classmate.group_id == grp.id
+    assert mock_msg.answer.call_count == 2
+    assert "Tarmoq xavfsizligi" in mock_msg.answer.call_args_list[1].args[0]
+
+
+@pytest.mark.asyncio
+async def test_failed_ai_reading_never_writes_lessons(db_session: AsyncSession, monkeypatch):
+    from sqlalchemy import select
+    from app.bot.handlers import user_menu
+    from app.models.schedule import Schedule
+    from app.models.university import Faculty, Group, University
+    from app.services import ai_service
+
+    class FailingProvider:
+        async def extract_schedule_from_image(self, image_bytes, filename="x.jpg"):
+            raise RuntimeError("AI ishlamadi")
+
+    monkeypatch.setattr(ai_service, "get_ai_provider", lambda: FailingProvider())
+
+    univ = University(name="TATU")
+    db_session.add(univ)
+    await db_session.commit()
+    fac = Faculty(name="KI", university_id=univ.id)
+    db_session.add(fac)
+    await db_session.commit()
+    grp = Group(name="1", university_id=univ.id, faculty_id=fac.id)
+    db_session.add(grp)
+    await db_session.commit()
+    student = User(
+        telegram_id=77, first_name="T", role=UserRole.USER, is_active=True,
+        university_id=univ.id, faculty_id=fac.id, group_id=grp.id,
+    )
+    db_session.add(student)
+    await db_session.commit()
+
+    msg = make_mock_message("", 77)
+    msg.photo = [MagicMock(file_id="f1")]
+    msg.bot = MagicMock()
+    msg.bot.get_file = AsyncMock(return_value=MagicMock(file_path="p"))
+    msg.bot.download_file = AsyncMock(return_value=MagicMock(read=lambda: b"img"))
+    msg.bot.send_photo = AsyncMock()
+    loading = MagicMock(edit_text=AsyncMock())
+    msg.answer = AsyncMock(return_value=loading)
+
+    await user_menu.handle_schedule_photo_upload(msg, student, db_session, AsyncMock())
+
+    rows = (await db_session.execute(select(Schedule))).scalars().all()
+    assert rows == []
+    assert "o'qib bo'lmadi" in loading.edit_text.call_args.args[0]

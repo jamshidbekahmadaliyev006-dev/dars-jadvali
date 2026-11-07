@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytest
 import pytz
 from sqlalchemy import select
@@ -10,6 +10,7 @@ from app.models.schedule import ReminderSetting, Schedule
 from app.models.university import Building, Faculty, Group, Room, Subject, University
 from app.models.user import User
 from app.scheduler import jobs as scheduler_jobs
+from tests.conftest import TestingSessionLocal
 from app.scheduler.jobs import check_and_send_lesson_reminders
 
 
@@ -19,8 +20,6 @@ async def test_lesson_reminders_job(db_session: AsyncSession, monkeypatch):
     # foydalanadi. Testda esa shu bir xil in-memory test bazasini ishlatishi uchun,
     # modul darajasidagi session factory'ni testning o'ziga moslashtiramiz - aks holda
     # job hali yaratilmagan haqiqiy faylga ulanib, "no such table" xatosi bilan yiqiladi.
-    monkeypatch.setattr(scheduler_jobs, "AsyncSessionLocal", lambda: db_session)
-
     tz = pytz.timezone(settings.TIMEZONE)
     now = datetime.now(tz)
     weekday_idx = now.weekday()
@@ -28,9 +27,11 @@ async def test_lesson_reminders_job(db_session: AsyncSession, monkeypatch):
     today_enum = DayOfWeek[day_names[weekday_idx]]
 
     # 10 daqiqadan so'ng boshlanadigan dars vaqti
-    start_dt = now.replace(minute=(now.minute + 10) % 60)
+    start_dt = now + timedelta(minutes=10)
+    if start_dt.date() != now.date():
+        pytest.skip("Yarim tunga yaqin: dars ertangi kunga o'tib ketadi")
     start_str = start_dt.strftime("%H:%M")
-    end_str = (start_dt.replace(hour=(start_dt.hour + 1) % 24)).strftime("%H:%M")
+    end_str = (start_dt + timedelta(minutes=80)).strftime("%H:%M")
 
     # Ma'lumotlarni bazaga kiritish
     univ = University(name="TATU Test")
@@ -74,12 +75,17 @@ async def test_lesson_reminders_job(db_session: AsyncSession, monkeypatch):
     db_session.add(reminder_setting)
     await db_session.commit()
 
-    # Schedulerni sinov tariqasida ishga tushirish
+    # Sessiya keshi yordam bermasligi uchun tozalaymiz - job real holatdagidek ishlashi kerak
+    db_session.expunge_all()
+
+    # Ikki marta ishga tushiramiz: eslatma yuborilishi va takrorlanmasligi kerak
+    monkeypatch.setattr(scheduler_jobs, "AsyncSessionLocal", lambda: TestingSessionLocal())
+    await check_and_send_lesson_reminders()
     await check_and_send_lesson_reminders()
 
-    # NotificationLog yaratilganligini tekshirish
-    stmt_log = select(NotificationLog).where(NotificationLog.user_id == student.id)
-    res = await db_session.execute(stmt_log)
-    logs = res.scalars().all()
-    # Har qanday sharoitda job xatosiz bajarilgan bo'lishi kerak
-    assert isinstance(logs, list)
+    async with TestingSessionLocal() as check_session:
+        res = await check_session.execute(select(NotificationLog))
+        logs = res.scalars().all()
+    assert len(logs) == 1
+    assert logs[0].is_success is True
+    assert "Web Dasturlash" in logs[0].body

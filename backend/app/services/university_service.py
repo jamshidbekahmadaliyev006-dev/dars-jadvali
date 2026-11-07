@@ -157,6 +157,16 @@ class UniversityService:
 
     # --- Bot orqali o'z-o'zidan ro'yxatdan o'tish uchun: nom bo'yicha topish/yaratish ---
     @staticmethod
+    async def find_university_by_name(session: AsyncSession, name: str) -> Optional[University]:
+        stmt = select(University).where(func.lower(University.name) == name.strip().lower())
+        return (await session.execute(stmt)).scalars().first()
+
+    @staticmethod
+    async def find_faculty_by_name(session: AsyncSession, university_id: int, name: str) -> Optional[Faculty]:
+        stmt = select(Faculty).where(Faculty.university_id == university_id, func.lower(Faculty.name) == name.strip().lower())
+        return (await session.execute(stmt)).scalars().first()
+
+    @staticmethod
     async def get_or_create_university_by_name(session: AsyncSession, name: str) -> University:
         name = name.strip()
         stmt = select(University).where(func.lower(University.name) == name.lower())

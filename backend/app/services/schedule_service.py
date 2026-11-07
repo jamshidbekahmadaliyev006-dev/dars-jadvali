@@ -371,7 +371,7 @@ class ScheduleService:
                 Schedule.start_time == start_time,
             )
             dup_result = await session.execute(dup_stmt)
-            sched = dup_result.scalar_one_or_none()
+            sched = dup_result.scalars().first()
 
             if sched:
                 sched.teacher_id = teacher.id if teacher else sched.teacher_id
@@ -393,6 +393,15 @@ class ScheduleService:
                 )
                 session.add(sched)
             created.append(sched)
+
+        # Yangi jadval eskisini to'liq almashtiradi, aks holda eski darslarga eslatma ketaveradi
+        if created:
+            await session.flush()
+            kept_ids = {s.id for s in created}
+            old_stmt = select(Schedule).where(Schedule.group_id == submission.group_id, Schedule.is_active == True)
+            for old in (await session.execute(old_stmt)).scalars().all():
+                if old.id not in kept_ids:
+                    old.is_active = False
 
         await session.commit()
         for s in created:

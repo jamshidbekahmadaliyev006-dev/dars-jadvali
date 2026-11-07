@@ -21,6 +21,7 @@ class ExtractedLessonItem(BaseModel):
     building: Optional[str] = None
     room: Optional[str] = None
     lesson_type: Optional[str] = "LECTURE"
+    week_parity: Optional[str] = "ALL"  # ALL, ODD (toq hafta), EVEN (juft hafta)
 
 
 class ExtractedScheduleResult(BaseModel):

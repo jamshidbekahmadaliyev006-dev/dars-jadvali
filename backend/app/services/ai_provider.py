@@ -134,27 +134,35 @@ class GeminiAIProvider(BaseAIProvider):
     Rasmiy HTTP REST API orqali ortiqcha og'ir kutubxonalarsiz ishlaydi.
     """
 
+    # Yengil modellar real jadval rasmini ~5 soniyada o'qiydi; gemini-flash-latest esa band
+    # paytda 503 qaytarib, 40 soniyadan ko'proq ushlab turadi. Birinchisi ishlamasa ikkinchisi.
+    VISION_MODELS = ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
+    CHAT_MODEL = "gemini-3.5-flash-lite"
+    REQUEST_TIMEOUT_SECONDS = 30.0
+
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
 
-    async def extract_schedule_from_image(self, image_bytes: bytes, filename: str = "schedule.jpg") -> ExtractedScheduleResult:
-        model = "gemini-flash-latest"
-        url = f"{self.base_url}/{model}:generateContent?key={self.api_key}"
+    def _headers(self) -> Dict[str, str]:
+        # Kalit URL'da emas, sarlavhada: URL'lar loglarga yoziladi
+        return {"x-goog-api-key": self.api_key}
 
+    async def extract_schedule_from_image(self, image_bytes: bytes, filename: str = "schedule.jpg") -> ExtractedScheduleResult:
         base64_data = base64.b64encode(image_bytes).decode("utf-8")
-        mime_type = "image/png" if filename.endswith(".png") else "image/jpeg"
+        mime_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
 
         prompt = (
-            "Ushbu universitet dars jadvali screenshotini diqqat bilan tahlil qiling. "
-            "Barcha darslarni JSON ro'yxati shaklida ajrating. "
-            "Har bir dars uchun quyidagi kalitlar bo'lsin: "
-            "'day' (Dushanba, Seshanba, Chorshanba, Payshanba, Juma, Shanba), "
-            "'subject' (fan nomi), 'teacher' (o'qituvchi ismi sharifi), "
-            "'start_time' (HH:MM formatda, masalan 09:00), 'end_time' (HH:MM formatda, masalan 10:20), "
-            "'building' (bino nomi), 'room' (xona yoki auditoriya raqami), "
-            "'lesson_type' (LECTURE, PRACTICE yoki LAB). "
-            "Faqat toza JSON array qaytaring, ortiqcha matnlarsiz."
+            "Bu universitet haftalik dars jadvali rasmi. Har bir rangli blok yoki jadval katagi bitta dars. "
+            "Ustun yoki qator sarlavhasi kun, blokdagi vaqt boshlanish vaqti. Tugash vaqti yozilmagan bo'lsa, "
+            "blok balandligi va vaqt o'qidan aniqlang. Bir vaqtda ikkita dars bo'lsa, ikkalasini ham yozing. "
+            "Fan nomi va xonani rasmda qanday yozilgan bo'lsa, aynan shunday ko'chiring. "
+            "Faqat rasmda ko'ringan narsani yozing, hech narsa to'qimang. Rasm dars jadvali bo'lmasa, [] qaytaring. "
+            "Faqat JSON massiv qaytaring, har bir element kalitlari: "
+            "day (Dushanba, Seshanba, Chorshanba, Payshanba, Juma, Shanba, Yakshanba), subject, "
+            "teacher (yo'q bo'lsa null), start_time (HH:MM), end_time (HH:MM), building (yo'q bo'lsa null), "
+            "room (yo'q bo'lsa null), lesson_type (LECTURE, PRACTICE, LAB, SEMINAR yoki OTHER), "
+            "week_parity (toq hafta=ODD, juft hafta=EVEN, belgi bo'lmasa=ALL)."
         )
 
         payload = {
@@ -162,12 +170,7 @@ class GeminiAIProvider(BaseAIProvider):
                 {
                     "parts": [
                         {"text": prompt},
-                        {
-                            "inline_data": {
-                                "mime_type": mime_type,
-                                "data": base64_data,
-                            }
-                        },
+                        {"inline_data": {"mime_type": mime_type, "data": base64_data}},
                     ]
                 }
             ],
@@ -177,31 +180,41 @@ class GeminiAIProvider(BaseAIProvider):
             },
         }
 
-        try:
-            async with httpx.AsyncClient(timeout=180.0) as client:
-                res = await client.post(url, json=payload)
-                if res.status_code != 200:
-                    logger.error(f"Gemini API error {res.status_code}: {res.text}")
-                    # Fallback to mock on error
-                    return await MockAIProvider().extract_schedule_from_image(image_bytes, filename)
+        # Xato bo'lsa namuna ma'lumot QAYTARILMAYDI: soxta darslar haqiqiy jadvalga yozilib ketardi
+        last_error = "noma'lum xato"
+        async with httpx.AsyncClient(timeout=self.REQUEST_TIMEOUT_SECONDS) as client:
+            for model in self.VISION_MODELS:
+                try:
+                    res = await client.post(
+                        f"{self.base_url}/{model}:generateContent",
+                        headers=self._headers(),
+                        json=payload,
+                    )
+                    if res.status_code != 200:
+                        last_error = f"{model}: HTTP {res.status_code}"
+                        logger.error(f"Gemini API error {res.status_code} ({model}): {res.text[:300]}")
+                        continue
 
-                resp_json = res.json()
-                content_text = resp_json["candidates"][0]["content"]["parts"][0]["text"]
-                parsed = json.loads(content_text)
-                items = [ExtractedLessonItem(**item) for item in parsed]
-                return ExtractedScheduleResult(
-                    lessons=items,
-                    confidence=0.9,
-                    warnings=None,
-                    raw_response=content_text,
-                )
-        except Exception as e:
-            logger.error(f"Gemini extract error: {e}")
-            return await MockAIProvider().extract_schedule_from_image(image_bytes, filename)
+                    content_text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    parsed = json.loads(content_text)
+                    raw_items = parsed.get("lessons", []) if isinstance(parsed, dict) else parsed
+                    items = [ExtractedLessonItem(**item) for item in raw_items]
+                    if not items:
+                        raise ValueError("Rasmdan birorta ham dars aniqlanmadi")
+                    return ExtractedScheduleResult(
+                        lessons=items,
+                        confidence=0.9,
+                        warnings=None,
+                        raw_response=content_text,
+                    )
+                except Exception as e:
+                    last_error = f"{model}: {type(e).__name__}: {e}"
+                    logger.error(f"Gemini extract error: {last_error}")
+
+        raise RuntimeError(f"Jadval rasmini o'qib bo'lmadi ({last_error})")
 
     async def chat_student_assistant(self, query: str, context: Dict[str, Any]) -> str:
-        model = "gemini-flash-latest"
-        url = f"{self.base_url}/{model}:generateContent?key={self.api_key}"
+        url = f"{self.base_url}/{self.CHAT_MODEL}:generateContent"
 
         system_instruction = (
             "Sen talabalarga dars jadvali, vazifalar va o'qish rejalari bo'yicha yordam beruvchi "
@@ -219,8 +232,8 @@ class GeminiAIProvider(BaseAIProvider):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=90.0) as client:
-                res = await client.post(url, json=payload)
+            async with httpx.AsyncClient(timeout=self.REQUEST_TIMEOUT_SECONDS) as client:
+                res = await client.post(url, headers=self._headers(), json=payload)
                 if res.status_code == 200:
                     data = res.json()
                     return data["candidates"][0]["content"]["parts"][0]["text"]
@@ -235,18 +248,15 @@ class GroqAIProvider(BaseAIProvider):
     """
     Groq (OpenAI bilan mos chat completions API) orqali ishlovchi tezkor AI provayder.
     GROQ_MODEL (masalan "openai/gpt-oss-120b") faqat matnli chat uchun ishlatiladi - bunday
-    modellar rasm qabul qila olmaydi, shuning uchun jadval screenshotini o'qish uchun
-    Groq'dagi alohida multimodal (vision) model ishlatiladi.
+    modellar rasm qabul qila olmaydi, shuning uchun jadval rasmi vision_provider'ga
+    (Gemini) topshiriladi.
     """
 
     BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
-    VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
     def __init__(self, api_key: str, chat_model: str, vision_provider: Optional["BaseAIProvider"] = None):
         self.api_key = api_key
         self.chat_model = chat_model
-        # Groq hisobida vision (rasm o'qiydigan) model mavjud bo'lmasligi mumkin - shunday
-        # holatda, agar GEMINI_API_KEY berilgan bo'lsa, screenshot tahlili shunga topshiriladi
         self.vision_provider = vision_provider
 
     def _headers(self) -> Dict[str, str]:
@@ -258,57 +268,7 @@ class GroqAIProvider(BaseAIProvider):
     async def extract_schedule_from_image(self, image_bytes: bytes, filename: str = "schedule.jpg") -> ExtractedScheduleResult:
         if self.vision_provider:
             return await self.vision_provider.extract_schedule_from_image(image_bytes, filename)
-
-        base64_data = base64.b64encode(image_bytes).decode("utf-8")
-        mime_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
-
-        prompt = (
-            "Ushbu universitet dars jadvali screenshotini diqqat bilan tahlil qiling. "
-            "Barcha darslarni aniqlab, FAQAT quyidagi JSON formatida javob qaytaring, boshqa hech qanday matn yozmang: "
-            '{"lessons": [{"day": "Dushanba", "subject": "Fan nomi", "teacher": "O\'qituvchi F.I.Sh.", '
-            '"start_time": "09:00", "end_time": "10:20", "building": "Bino nomi", "room": "Xona raqami", '
-            '"lesson_type": "LECTURE"}]}. '
-            "'day' qiymati Dushanba, Seshanba, Chorshanba, Payshanba, Juma yoki Shanba bo'lishi kerak. "
-            "'lesson_type' esa faqat LECTURE, PRACTICE, LAB, SEMINAR yoki OTHER bo'lishi mumkin. "
-            "Vaqtlarni albatta HH:MM formatida yozing."
-        )
-
-        payload = {
-            "model": self.VISION_MODEL,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{base64_data}"}},
-                    ],
-                }
-            ],
-            "temperature": 0.1,
-            "response_format": {"type": "json_object"},
-        }
-
-        try:
-            async with httpx.AsyncClient(timeout=45.0) as client:
-                res = await client.post(self.BASE_URL, headers=self._headers(), json=payload)
-                if res.status_code != 200:
-                    logger.error(f"Groq vision API error {res.status_code}: {res.text}")
-                    return await MockAIProvider().extract_schedule_from_image(image_bytes, filename)
-
-                resp_json = res.json()
-                content_text = resp_json["choices"][0]["message"]["content"]
-                parsed = json.loads(content_text)
-                raw_items = parsed.get("lessons", []) if isinstance(parsed, dict) else parsed
-                items = [ExtractedLessonItem(**item) for item in raw_items]
-                return ExtractedScheduleResult(
-                    lessons=items,
-                    confidence=0.85,
-                    warnings=None,
-                    raw_response=content_text,
-                )
-        except Exception as e:
-            logger.error(f"Groq extract error: {e}")
-            return await MockAIProvider().extract_schedule_from_image(image_bytes, filename)
+        raise RuntimeError("Rasm o'qish uchun GEMINI_API_KEY kerak: Groq hisobida vision model yo'q")
 
     async def chat_student_assistant(self, query: str, context: Dict[str, Any]) -> str:
         system_instruction = (

@@ -19,6 +19,8 @@ def setup_logging():
     # Shovqinli kutubxonalar log darajasini pasaytirish
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("aiogram.event").setLevel(logging.INFO)
 
     logger = logging.getLogger("uninotify")

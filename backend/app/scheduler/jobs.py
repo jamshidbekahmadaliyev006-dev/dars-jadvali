@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import pytz
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from app.bot.bot_instance import get_bot
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -9,7 +10,9 @@ from app.core.logging import logger
 from app.models.enums import DayOfWeek, NotificationType
 from app.models.log import NotificationLog
 from app.models.schedule import ReminderSetting, Schedule
+from app.models.university import Group, Room
 from app.models.user import User
+from app.bot.text_utils import esc
 from app.services.schedule_service import format_minutes_uz
 
 
@@ -29,6 +32,12 @@ async def check_and_send_lesson_reminders():
             # Bugungi faol darslarni olish
             stmt = (
                 select(Schedule)
+                .options(
+                    selectinload(Schedule.subject),
+                    selectinload(Schedule.teacher),
+                    selectinload(Schedule.group).selectinload(Group.university),
+                    selectinload(Schedule.room).selectinload(Room.building),
+                )
                 .where(Schedule.day_of_week == today_enum, Schedule.is_active == True)
             )
             res = await session.execute(stmt)
@@ -73,14 +82,18 @@ async def _process_schedules(session: AsyncSession, schedules, now: datetime) ->
                 # Dars boshlanishiga aynan minutes_before oralig'i to'g'ri kelsa (masalan 14-16 min oraliqda)
                 if 0 <= diff_minutes <= minutes_before:
                     # Takroriy yuborishni oldini olish
-                    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-                    stmt_log = select(NotificationLog).where(
+                    # created_at UTC'da saqlanadi. Sarlavha aniq solishtiriladi: bir kunda bir xil
+                    # fan ikki marta bo'lsa yoki nomi boshqasining boshi bo'lsa, eslatma yo'qolmaydi.
+                    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
+                    log_title = f"Dars: {sched.subject.name if sched.subject else 'Fan nomi'} ({sched.start_time})"
+                    stmt_log = select(NotificationLog.id).where(
                         NotificationLog.user_id == student.id,
-                        NotificationLog.title.contains(f"Dars: {sched.subject.name if sched.subject else ''}"),
+                        NotificationLog.title == log_title,
+                        NotificationLog.is_success == True,
                         NotificationLog.created_at >= today_start,
-                    )
+                    ).limit(1)
                     res_log = await session.execute(stmt_log)
-                    already_sent = res_log.scalar_one_or_none()
+                    already_sent = res_log.first()
 
                     if not already_sent:
                         # Eslatma matnini tayyorlash
@@ -93,11 +106,11 @@ async def _process_schedules(session: AsyncSession, schedules, now: datetime) ->
 
                         msg_text = (
                             f"⏰ <b>Dars eslatmasi ({format_minutes_uz(diff_minutes)}dan so'ng)!</b>\n\n"
-                            f"🏛 <b>Universitet:</b> {univ_name}\n"
-                            f"📚 <b>Fan:</b> {subj_name}\n"
-                            f"👨‍🏫 <b>O'qituvchi:</b> {teacher_name}\n"
-                            f"🏢 <b>Bino:</b> {bld_name} (Qavat: {floor_num})\n"
-                            f"🚪 <b>Xona:</b> {room_num}\n"
+                            f"🏛 <b>Universitet:</b> {esc(univ_name)}\n"
+                            f"📚 <b>Fan:</b> {esc(subj_name)}\n"
+                            f"👨‍🏫 <b>O'qituvchi:</b> {esc(teacher_name)}\n"
+                            f"🏢 <b>Bino:</b> {esc(bld_name)} (Qavat: {floor_num})\n"
+                            f"🚪 <b>Xona:</b> {esc(room_num)}\n"
                             f"🕒 <b>Boshlanish vaqti:</b> {sched.start_time} - {sched.end_time}\n\n"
                             f"<i>Darsga kechikmasdan boring!</i>"
                         )
@@ -123,7 +136,7 @@ async def _process_schedules(session: AsyncSession, schedules, now: datetime) ->
                         notif_log = NotificationLog(
                             user_id=student.id,
                             notification_type=NotificationType.LESSON_REMINDER,
-                            title=f"Dars: {subj_name} ({sched.start_time})",
+                            title=log_title,
                             body=msg_text,
                             scheduled_for=lesson_start_dt,
                             sent_at=now,

@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.handlers.registration import start_registration
 from app.bot.states import ReminderStates
-from app.bot.text_utils import esc
+from app.bot.text_utils import DAY_LABELS_UZ, esc, format_weekly_schedule
 from app.core.config import settings
 from app.core.logging import logger
 from app.models.enums import DayOfWeek, SubmissionStatus, UserRole
@@ -17,21 +17,11 @@ from app.models.schedule import Schedule, ScheduleSubmission
 from app.models.task import PersonalTask
 from app.models.user import User
 from app.schemas.schedule import ReminderSettingUpdate, ScheduleSubmissionCreate, ScheduleSubmissionReview
+from app.services.ai_provider import MockAIProvider, get_ai_provider
 from app.services.ai_service import AIService
 from app.services.schedule_service import ScheduleService, format_minutes_uz
 
 router = Router(name="user_menu")
-
-DAY_LABELS_UZ = {
-    DayOfWeek.MONDAY: "Dushanba",
-    DayOfWeek.TUESDAY: "Seshanba",
-    DayOfWeek.WEDNESDAY: "Chorshanba",
-    DayOfWeek.THURSDAY: "Payshanba",
-    DayOfWeek.FRIDAY: "Juma",
-    DayOfWeek.SATURDAY: "Shanba",
-    DayOfWeek.SUNDAY: "Yakshanba",
-}
-
 
 def get_today_tomorrow_enums():
     tz = pytz.timezone(settings.TIMEZONE)
@@ -44,7 +34,7 @@ def get_today_tomorrow_enums():
 @router.message(F.text == "📖 Bugungi darslar")
 async def handle_today_lessons(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
     if not current_user.group_id:
-        await start_registration(message, state)
+        await start_registration(message, state, session)
         return
 
     today_enum, _ = get_today_tomorrow_enums()
@@ -70,7 +60,7 @@ async def handle_today_lessons(message: Message, current_user: User, session: As
 @router.message(F.text == "📆 Ertangi darslar")
 async def handle_tomorrow_lessons(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
     if not current_user.group_id:
-        await start_registration(message, state)
+        await start_registration(message, state, session)
         return
 
     _, tomorrow_enum = get_today_tomorrow_enums()
@@ -95,7 +85,7 @@ async def handle_tomorrow_lessons(message: Message, current_user: User, session:
 @router.message(F.text == "🗓 Umumiy jadval")
 async def handle_full_schedule(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
     if not current_user.group_id:
-        await start_registration(message, state)
+        await start_registration(message, state, session)
         return
 
     schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
@@ -107,30 +97,13 @@ async def handle_full_schedule(message: Message, current_user: User, session: As
         )
         return
 
-    by_day: dict[DayOfWeek, list[Schedule]] = {}
-    for s in schedules:
-        by_day.setdefault(s.day_of_week, []).append(s)
-
-    lines = ["🗓 <b>Haftalik umumiy dars jadvali:</b>\n"]
-    for day in DayOfWeek:
-        day_schedules = by_day.get(day)
-        if not day_schedules:
-            continue
-        day_schedules.sort(key=lambda s: s.start_time)
-        lines.append(f"\n📌 <b>{DAY_LABELS_UZ[day]}</b>")
-        for s in day_schedules:
-            subj = esc(s.subject.name) if s.subject else "Fan"
-            teacher = f" | {esc(s.teacher.full_name)}" if s.teacher else ""
-            room = f" | {esc(s.room.number)}-xona" if s.room else ""
-            lines.append(f"  ⏰ {esc(s.start_time)}-{esc(s.end_time)}: {subj}{room}{teacher}")
-
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    await message.answer(format_weekly_schedule(schedules), parse_mode="HTML")
 
 
 @router.message(F.text == "📤 Jadval yuborish")
-async def handle_send_schedule_prompt(message: Message, current_user: User, state: FSMContext):
+async def handle_send_schedule_prompt(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
     if not current_user.group_id:
-        await start_registration(message, state)
+        await start_registration(message, state, session)
         return
 
     await message.answer(
@@ -147,7 +120,7 @@ async def handle_send_schedule_prompt(message: Message, current_user: User, stat
 async def handle_schedule_photo_upload(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
     # Universitet va guruh biriktirilganligini tekshirish - bo'lmasa, avval ro'yxatdan o'tkazamiz
     if not current_user.university_id or not current_user.group_id:
-        await start_registration(message, state)
+        await start_registration(message, state, session)
         return
 
     photo = message.photo[-1]  # eng yuqori sifatlisi
@@ -184,15 +157,11 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
 
     loading_msg = await message.answer(
         "⏳ <b>Screenshot qabul qilindi!</b>\n"
-        "Sun'iy intellekt (AI) jadvalni tahlil qilmoqda — bu bir necha o'n soniyadan "
-        "bir necha daqiqagacha vaqt olishi mumkin, iltimos sabr qiling...",
+        "Sun'iy intellekt (AI) jadvalni o'qimoqda, odatda 5-15 soniya vaqt oladi...",
         parse_mode="HTML",
     )
 
     try:
-        # Telegramdagi rasmning HAQIQIY baytlarini yuklab olish - avval bu yerda soxta
-        # placeholder bayt yuborilardi, shuning uchun AI hech qachon haqiqiy screenshotni
-        # ko'rmay, har doim namuna (mock) ma'lumot qaytarardi
         file_info = await message.bot.get_file(file_id)
         file_io = await message.bot.download_file(file_info.file_path)
         image_bytes = file_io.read()
@@ -211,13 +180,24 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
             except Exception:
                 pass
 
+        if processed.status != SubmissionStatus.ADMIN_REVIEW or lessons_count == 0:
+            await loading_msg.edit_text(
+                "⚠️ <b>Jadvalni o'qib bo'lmadi.</b>\n\n"
+                "Jadvalingizga hech narsa qo'shilmadi. Rasm aniq va to'liq ekanini tekshirib, "
+                "birozdan so'ng qayta yuboring.",
+                parse_mode="HTML",
+            )
+            return
+
         # Avtomatik tasdiqlash FAQAT shu guruh uchun hali birorta ham dars kiritilmagan bo'lsa
         # (ya'ni guruhni birinchi bo'lib shu talaba "ochyapti") - aks holda, guruh jadvali
         # allaqachon mavjud bo'lsa, uni istalgan a'zo screenshot yuborib osongina buzib
         # qo'ymasligi uchun admin tasdiqlashini kutadi.
         existing_schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
         is_admin = current_user.role == UserRole.ADMIN
-        can_auto_approve = is_admin or not existing_schedules
+        # Namuna (mock) provayder natijasi hech qachon haqiqiy jadvalga yozilmaydi
+        is_real_ai = not isinstance(get_ai_provider(), MockAIProvider)
+        can_auto_approve = is_real_ai and (is_admin or not existing_schedules)
 
         if can_auto_approve:
             review = ScheduleSubmissionReview(
@@ -341,5 +321,5 @@ async def handle_profile(message: Message, current_user: User, session: AsyncSes
 
 
 @router.message(Command("register"))
-async def handle_register_command(message: Message, state: FSMContext):
-    await start_registration(message, state)
+async def handle_register_command(message: Message, session: AsyncSession, state: FSMContext):
+    await start_registration(message, state, session)
