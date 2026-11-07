@@ -17,7 +17,7 @@ from app.models.task import PersonalTask
 from app.models.user import User
 from app.schemas.schedule import ReminderSettingUpdate, ScheduleSubmissionCreate, ScheduleSubmissionReview
 from app.services.ai_service import AIService
-from app.services.schedule_service import ScheduleService
+from app.services.schedule_service import ScheduleService, format_minutes_uz
 
 router = Router(name="user_menu")
 
@@ -168,10 +168,17 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
     )
 
     try:
+        # Telegramdagi rasmning HAQIQIY baytlarini yuklab olish - avval bu yerda soxta
+        # placeholder bayt yuborilardi, shuning uchun AI hech qachon haqiqiy screenshotni
+        # ko'rmay, har doim namuna (mock) ma'lumot qaytarardi
+        file_info = await message.bot.get_file(file_id)
+        file_io = await message.bot.download_file(file_info.file_path)
+        image_bytes = file_io.read()
+
         processed = await AIService.process_schedule_submission(
             session=session,
             submission_id=submission.id,
-            image_bytes=b"tg_image_bytes",
+            image_bytes=image_bytes,
             filename=f"tg_{file_id}.jpg",
         )
 
@@ -254,7 +261,7 @@ async def handle_reminder_settings_prompt(message: Message, current_user: User, 
     await state.set_state(ReminderStates.waiting_minutes)
     await message.answer(
         f"⏰ <b>Dars eslatmasi sozlamalari</b>\n\n"
-        f"Hozirgi sozlama: har bir darsdan <b>{setting.minutes_before} daqiqa</b> oldin eslatma yuboriladi.\n\n"
+        f"Hozirgi sozlama: har bir darsdan <b>{format_minutes_uz(setting.minutes_before)}</b> oldin eslatma yuboriladi.\n\n"
         f"Yangi qiymatni kiriting (1 dan 180 gacha, daqiqalarda), yoki hech narsa o'zgartirmaslik uchun "
         f"shunchaki <b>0</b> deb yuboring:",
         parse_mode="HTML",
@@ -282,7 +289,7 @@ async def handle_reminder_minutes_input(message: Message, state: FSMContext, cur
     await ScheduleService.update_reminder_setting(
         session, current_user.id, ReminderSettingUpdate(is_enabled=True, minutes_before=value)
     )
-    await message.answer(f"✅ Endi darslardan <b>{value} daqiqa</b> oldin eslatma yuboriladi.", parse_mode="HTML")
+    await message.answer(f"✅ Endi darslardan <b>{format_minutes_uz(value)}</b> oldin eslatma yuboriladi.", parse_mode="HTML")
 
 
 @router.message(F.text == "👤 Profilim")
@@ -304,7 +311,7 @@ async def handle_profile(message: Message, current_user: User, session: AsyncSes
         f"🏷 <b>Ism:</b> {current_user.first_name}\n"
         f"🔰 <b>Rol:</b> {role_title}\n"
         f"👥 <b>Guruh:</b> {group_info}\n"
-        f"⏰ <b>Eslatma:</b> darsdan {setting.minutes_before} daqiqa oldin\n\n"
+        f"⏰ <b>Eslatma:</b> darsdan {format_minutes_uz(setting.minutes_before)} oldin\n\n"
         f"Universitet/fakultet/guruhni qayta kiritish kerak bo'lsa, <b>/register</b> buyrug'ini yuboring."
     )
     await message.answer(info_text, parse_mode="HTML")

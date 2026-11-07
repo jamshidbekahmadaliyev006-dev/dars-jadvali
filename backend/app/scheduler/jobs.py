@@ -10,6 +10,7 @@ from app.models.enums import DayOfWeek, NotificationType
 from app.models.log import NotificationLog
 from app.models.schedule import ReminderSetting, Schedule
 from app.models.user import User
+from app.services.schedule_service import format_minutes_uz
 
 
 async def check_and_send_lesson_reminders():
@@ -91,7 +92,7 @@ async def _process_schedules(session: AsyncSession, schedules, now: datetime) ->
                         room_num = sched.room.number if sched.room else "Xona belgilanmagan"
 
                         msg_text = (
-                            f"⏰ <b>Dars eslatmasi ({diff_minutes} daqiqadan so'ng)!</b>\n\n"
+                            f"⏰ <b>Dars eslatmasi ({format_minutes_uz(diff_minutes)}dan so'ng)!</b>\n\n"
                             f"🏛 <b>Universitet:</b> {univ_name}\n"
                             f"📚 <b>Fan:</b> {subj_name}\n"
                             f"👨‍🏫 <b>O'qituvchi:</b> {teacher_name}\n"

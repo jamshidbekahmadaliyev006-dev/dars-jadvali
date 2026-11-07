@@ -242,9 +242,12 @@ class GroqAIProvider(BaseAIProvider):
     BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
     VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
-    def __init__(self, api_key: str, chat_model: str):
+    def __init__(self, api_key: str, chat_model: str, vision_provider: Optional["BaseAIProvider"] = None):
         self.api_key = api_key
         self.chat_model = chat_model
+        # Groq hisobida vision (rasm o'qiydigan) model mavjud bo'lmasligi mumkin - shunday
+        # holatda, agar GEMINI_API_KEY berilgan bo'lsa, screenshot tahlili shunga topshiriladi
+        self.vision_provider = vision_provider
 
     def _headers(self) -> Dict[str, str]:
         return {
@@ -253,6 +256,9 @@ class GroqAIProvider(BaseAIProvider):
         }
 
     async def extract_schedule_from_image(self, image_bytes: bytes, filename: str = "schedule.jpg") -> ExtractedScheduleResult:
+        if self.vision_provider:
+            return await self.vision_provider.extract_schedule_from_image(image_bytes, filename)
+
         base64_data = base64.b64encode(image_bytes).decode("utf-8")
         mime_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
 
@@ -342,5 +348,6 @@ def get_ai_provider() -> BaseAIProvider:
     if provider == "gemini" and settings.GEMINI_API_KEY:
         return GeminiAIProvider(api_key=settings.GEMINI_API_KEY)
     if provider == "groq" and settings.GROQ_API_KEY:
-        return GroqAIProvider(api_key=settings.GROQ_API_KEY, chat_model=settings.GROQ_MODEL)
+        vision_provider = GeminiAIProvider(api_key=settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else None
+        return GroqAIProvider(api_key=settings.GROQ_API_KEY, chat_model=settings.GROQ_MODEL, vision_provider=vision_provider)
     return MockAIProvider()
