@@ -11,3 +11,8 @@ class RegistrationStates(StatesGroup):
 class ReminderStates(StatesGroup):
     """Dars eslatmasi necha daqiqa oldin yuborilishini so'rash oqimi"""
     waiting_minutes = State()
+
+
+class AnnouncementStates(StatesGroup):
+    """Admin e'lon matnini yozish oqimi"""
+    waiting_text = State()

@@ -39,7 +39,7 @@ async def test_start_handler_for_student():
     mock_msg.answer.assert_called_once()
     args, kwargs = mock_msg.answer.call_args
     # Javob matnida talabaga xush kelibsiz so'zlari borligini tekshirish
-    assert "universitet talabalari uchun universal platformaga xush kelibsiz" in args[0]
+    assert "Salom, Aziz" in args[0]
     # Reply markup borligini tekshirish
     assert "reply_markup" in kwargs
 
@@ -61,8 +61,8 @@ async def test_start_handler_for_admin():
 
     mock_msg.answer.assert_called_once()
     args, kwargs = mock_msg.answer.call_args
-    assert "Administrator Adminbek" in args[0]
-    assert "UniNotify boshqaruv tizimiga xush kelibsiz" in args[0]
+    assert "Salom, Adminbek" in args[0]
+    assert "administrator" in args[0]
 
 
 @pytest.mark.asyncio
@@ -116,8 +116,8 @@ async def test_admin_statistics_permission_granted(db_session: AsyncSession):
     await handle_admin_statistics(mock_msg, current_user=admin_user, session=db_session)
     mock_msg.answer.assert_called_once()
     args, _ = mock_msg.answer.call_args
-    assert "UniNotify Tizim Statistikasi" in args[0]
-    assert "Foydalanuvchilar" in args[0]
+    assert "Statistika" in args[0]
+    assert "Talabalar" in args[0]
 
 
 @pytest.mark.asyncio
@@ -200,3 +200,54 @@ async def test_failed_ai_reading_never_writes_lessons(db_session: AsyncSession, 
     rows = (await db_session.execute(select(Schedule))).scalars().all()
     assert rows == []
     assert "o'qib bo'lmadi" in loading.edit_text.call_args.args[0]
+
+
+@pytest.mark.parametrize(
+    "raw, name, code",
+    [
+        ("Axborot xavfsizligi auditi (4 kr)-INS001", "Axborot xavfsizligi auditi", "INS001"),
+        ("Axborot xavfsizligi auditi (4 kr)-INS001-3", "Axborot xavfsizligi auditi", "INS001"),
+        ("Tarmoq havfsizligi/-NWS001", "Tarmoq havfsizligi", "NWS001"),
+        ("Foydalanishlarni boshqarish (M)-ACC001-3", "Foydalanishlarni boshqarish", "ACC001"),
+        ("Oliy matematika", "Oliy matematika", None),
+    ],
+)
+def test_subject_variants_are_one_subject(raw, name, code):
+    from app.services.schedule_service import normalize_subject_name
+
+    assert normalize_subject_name(raw) == (name, code)
+
+
+@pytest.mark.asyncio
+async def test_rejecting_submission_notifies_student_once(db_session: AsyncSession):
+    from app.bot.handlers.admin_menu import handle_reject_submission_callback
+    from app.models.enums import SubmissionStatus
+    from app.models.schedule import ScheduleSubmission
+    from app.models.university import University
+
+    univ = University(name="TATU")
+    student = User(telegram_id=501, first_name="T", role=UserRole.USER, is_active=True)
+    admin = User(telegram_id=502, first_name="A", role=UserRole.ADMIN, is_active=True)
+    db_session.add_all([univ, student, admin])
+    await db_session.commit()
+    sub = ScheduleSubmission(
+        user_id=student.id, university_id=univ.id, image_file_id="f",
+        status=SubmissionStatus.ADMIN_REVIEW,
+    )
+    db_session.add(sub)
+    await db_session.commit()
+
+    query = MagicMock()
+    query.data = f"reject_sub_{sub.id}"
+    query.answer = AsyncMock()
+    query.bot.send_message = AsyncMock()
+    query.message.photo = [MagicMock()]
+    query.message.edit_caption = AsyncMock()
+
+    await handle_reject_submission_callback(query, admin, db_session)
+    await handle_reject_submission_callback(query, admin, db_session)
+
+    assert sub.status == SubmissionStatus.REJECTED
+    query.message.edit_caption.assert_awaited_once()
+    query.bot.send_message.assert_awaited_once()
+    assert query.bot.send_message.call_args.kwargs["chat_id"] == 501

@@ -1,7 +1,7 @@
 from html import escape
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Sequence
 from app.models.enums import DayOfWeek, WeekParity
-from app.services.schedule_service import current_local_date, week_parity_for
+from app.services.schedule_service import current_local_date, format_minutes_uz, week_parity_for
 
 DAY_LABELS_UZ = {
     DayOfWeek.MONDAY: "Dushanba",
@@ -20,11 +20,6 @@ PARITY_LABELS_UZ = {
 }
 
 
-def parity_suffix(schedule: Any) -> str:
-    label = PARITY_LABELS_UZ.get(schedule.week_parity)
-    return f" | {label}" if label else ""
-
-
 def esc(value: Any) -> str:
     """
     Telegram parse_mode='HTML' xabarlariga qo'yiladigan har qanday foydalanuvchi yoki AI
@@ -38,23 +33,66 @@ def esc(value: Any) -> str:
     return escape(str(value), quote=False)
 
 
-def format_weekly_schedule(schedules: Iterable[Any]) -> str:
+def subject_names(schedules: Iterable[Any]) -> List[str]:
+    """Takrorlanmaydigan fan nomlari, alifbo tartibida"""
+    return sorted({s.subject.name for s in schedules if s.subject})
+
+
+def schedule_summary(schedules: Sequence[Any]) -> str:
+    return f"{len(subject_names(schedules))} ta fan · {len(schedules)} ta dars"
+
+
+def _lesson_line(s: Any, show_parity: bool = False) -> str:
+    # Faqat boshlanish vaqti: rasmlarda tugash vaqti yozilmaydi, AI uni taxmin qiladi
+    parts = [f"<b>{esc(s.start_time)}</b> — {esc(s.subject.name) if s.subject else 'Fan'}"]
+    if s.room:
+        parts.append(esc(s.room.number))
+    if s.teacher:
+        parts.append(esc(s.teacher.full_name))
+    if show_parity and s.week_parity in PARITY_LABELS_UZ:
+        parts.append(PARITY_LABELS_UZ[s.week_parity])
+    return " · ".join(parts)
+
+
+def format_day_schedule(icon: str, title: str, schedules: Sequence[Any]) -> str:
+    if not schedules:
+        return f"{icon} <b>{title}</b>\n\nDars yo'q 🎉"
+    lines = [f"{icon} <b>{title}</b> — {len(schedules)} ta dars\n"]
+    lines.extend(_lesson_line(s) for s in schedules)
+    return "\n".join(lines)
+
+
+def format_weekly_schedule(schedules: Sequence[Any]) -> str:
     """Guruhning barcha darslarini kunlar bo'yicha guruhlab, HTML matn qiladi"""
     by_day: Dict[DayOfWeek, List[Any]] = {}
     for s in schedules:
         by_day.setdefault(s.day_of_week, []).append(s)
 
     current_label = PARITY_LABELS_UZ[week_parity_for(current_local_date())]
-    lines = [f"🗓 <b>Haftalik umumiy dars jadvali</b>\nHozir: {current_label}"]
+    lines = [
+        "🗓 <b>Haftalik jadval</b>",
+        schedule_summary(schedules),
+        f"Hozir: {current_label}",
+    ]
     for day in DayOfWeek:
         day_schedules = by_day.get(day)
         if not day_schedules:
             continue
         day_schedules.sort(key=lambda s: s.start_time)
-        lines.append(f"\n📌 <b>{DAY_LABELS_UZ[day]}</b>")
-        for s in day_schedules:
-            subj = esc(s.subject.name) if s.subject else "Fan"
-            teacher = f" | {esc(s.teacher.full_name)}" if s.teacher else ""
-            room = f" | {esc(s.room.number)}-xona" if s.room else ""
-            lines.append(f"  ⏰ {esc(s.start_time)}-{esc(s.end_time)}: {subj}{room}{teacher}{parity_suffix(s)}")
+        lines.append(f"\n<b>{DAY_LABELS_UZ[day]}</b>")
+        lines.extend(_lesson_line(s, show_parity=True) for s in day_schedules)
+    return "\n".join(lines)
+
+
+def format_reminder(schedule: Any, minutes_left: int) -> str:
+    if minutes_left > 0:
+        header = f"⏰ <b>Darsga {format_minutes_uz(minutes_left)} qoldi</b>"
+    else:
+        header = "⏰ <b>Dars hozir boshlanadi</b>"
+
+    lines = [header, "", f"📚 {esc(schedule.subject.name) if schedule.subject else 'Fan'}", f"🕒 {esc(schedule.start_time)}"]
+    if schedule.room:
+        lines.append(f"📍 {esc(schedule.room.number)}")
+    if schedule.teacher:
+        lines.append(f"👤 {esc(schedule.teacher.full_name)}")
     return "\n".join(lines)

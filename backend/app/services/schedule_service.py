@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta
 import json
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict, List, Optional, Tuple
 import pytz
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,6 +53,26 @@ def resolve_day_of_week(raw: Optional[str]) -> Optional[DayOfWeek]:
     if upper in DayOfWeek.__members__:
         return DayOfWeek[upper]
     return None
+
+
+_SUBJECT_CODE_RE = re.compile(r"[\s/\-–]*\b([A-Z]{2,}\d{2,})(?:-\d+)?\s*$")
+
+
+def normalize_subject_name(raw: str) -> Tuple[str, Optional[str]]:
+    """
+    Jadvaldagi yozuvdan toza fan nomi va kodini ajratadi. Bir fan ma'ruza, amaliyot va
+    guruh bo'yicha turlicha yoziladi, masalan "Axborot xavfsizligi auditi (4 kr)-INS001"
+    va "...-INS001-3": ikkalasi ham bitta fan.
+    """
+    text = (raw or "").strip()
+    code = None
+    match = _SUBJECT_CODE_RE.search(text)
+    if match:
+        code = match.group(1)
+        text = text[:match.start()]
+    text = re.sub(r"\([^)]*\)", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" /-–,.")
+    return (text or (raw or "").strip()), code
 
 
 def current_local_date() -> date:
@@ -291,13 +312,18 @@ class ScheduleService:
 
     # --- AI OCR natijasini real DB yozuvlariga avtomatik bog'lash ---
     @staticmethod
-    async def _get_or_create_subject(session: AsyncSession, university_id: int, name: str) -> Subject:
+    async def _get_or_create_subject(
+        session: AsyncSession,
+        university_id: int,
+        name: str,
+        code: Optional[str] = None,
+    ) -> Subject:
         stmt = select(Subject).where(Subject.university_id == university_id, func.lower(Subject.name) == name.lower())
         result = await session.execute(stmt)
         obj = result.scalar_one_or_none()
         if obj:
             return obj
-        obj = Subject(university_id=university_id, name=name)
+        obj = Subject(university_id=university_id, name=name, code=code)
         session.add(obj)
         await session.flush()
         return obj
@@ -369,7 +395,10 @@ class ScheduleService:
                 # Noto'liq yoki tanilmagan qator - xavfsiz tarzda o'tkazib yuboramiz
                 continue
 
-            subject = await ScheduleService._get_or_create_subject(session, submission.university_id, subject_name)
+            clean_name, subject_code = normalize_subject_name(subject_name)
+            subject = await ScheduleService._get_or_create_subject(
+                session, submission.university_id, clean_name, subject_code
+            )
 
             teacher = None
             teacher_name = (item.get("teacher") or "").strip()

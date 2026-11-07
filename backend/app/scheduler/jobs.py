@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta
+from datetime import datetime
+import math
 import pytz
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,8 +13,8 @@ from app.models.log import NotificationLog
 from app.models.schedule import ReminderSetting, Schedule
 from app.models.university import Group, Room
 from app.models.user import User
-from app.bot.text_utils import esc
-from app.services.schedule_service import format_minutes_uz, week_parity_for
+from app.bot.text_utils import format_reminder
+from app.services.schedule_service import week_parity_for
 
 
 async def check_and_send_lesson_reminders():
@@ -100,24 +101,9 @@ async def _process_schedules(session: AsyncSession, schedules, now: datetime) ->
                     already_sent = res_log.first()
 
                     if not already_sent:
-                        # Eslatma matnini tayyorlash
-                        univ_name = sched.group.university.name if (sched.group and sched.group.university) else "Universitet"
-                        subj_name = sched.subject.name if sched.subject else "Fan nomi"
-                        teacher_name = sched.teacher.full_name if sched.teacher else "O'qituvchi belgilanmagan"
-                        bld_name = sched.room.building.name if (sched.room and sched.room.building) else "Bino"
-                        floor_num = sched.room.floor if sched.room and sched.room.floor else "-"
-                        room_num = sched.room.number if sched.room else "Xona belgilanmagan"
-
-                        msg_text = (
-                            f"⏰ <b>Dars eslatmasi ({format_minutes_uz(diff_minutes)}dan so'ng)!</b>\n\n"
-                            f"🏛 <b>Universitet:</b> {esc(univ_name)}\n"
-                            f"📚 <b>Fan:</b> {esc(subj_name)}\n"
-                            f"👨‍🏫 <b>O'qituvchi:</b> {esc(teacher_name)}\n"
-                            f"🏢 <b>Bino:</b> {esc(bld_name)} (Qavat: {floor_num})\n"
-                            f"🚪 <b>Xona:</b> {esc(room_num)}\n"
-                            f"🕒 <b>Boshlanish vaqti:</b> {sched.start_time} - {sched.end_time}\n\n"
-                            f"<i>Darsga kechikmasdan boring!</i>"
-                        )
+                        # Sekundlar yaxlitlanadi, sozlamadan ko'p ko'rsatilmaydi
+                        minutes_left = min(minutes_before, max(0, math.ceil(time_diff.total_seconds() / 60)))
+                        msg_text = format_reminder(sched, minutes_left)
 
                         sent_success = False
                         error_txt = None
@@ -149,6 +135,6 @@ async def _process_schedules(session: AsyncSession, schedules, now: datetime) ->
                         )
                         session.add(notif_log)
                         await session.commit()
-                        logger.info(f"Sent reminder for lesson {subj_name} to student {student.id}")
+                        logger.info(f"Sent reminder for schedule {sched.id} to student {student.id}")
         except Exception as e:
             logger.error(f"Error checking schedule {sched.id}: {e}")

@@ -26,23 +26,14 @@ async def handle_start(
     Guruhi hali biriktirilmagan foydalanuvchi uchun ro'yxatdan o'tish (universitet/
     fakultet/guruh) bosqichini boshlaydi, aks holda roliga mos menyuni ochadi.
     """
-    greeting = "Assalomu alaykum"
     name = esc(current_user.first_name) or "Talaba"
 
     if current_user.role == UserRole.ADMIN:
-        welcome_text = (
-            f"👑 <b>{greeting}, Administrator {name}!</b>\n\n"
-            f"UniNotify boshqaruv tizimiga xush kelibsiz.\n"
-            f"Bu yerdan universitetlar, jadvallar va foydalanuvchilarni nazorat qilishingiz mumkin."
-        )
+        welcome_text = f"👋 <b>Salom, {name}!</b>\n\nSiz administratorsiz. Kerakli bo'limni tanlang."
     else:
         welcome_text = (
-            f"🎓 <b>{greeting}, {name}!</b>\n\n"
-            f"<b>UniNotify</b> — universitet talabalari uchun universal platformaga xush kelibsiz!\n\n"
-            f"🚀 <b>Imkoniyatlar:</b>\n"
-            f"• Dars jadvalini screenshot orqali avtomatik tanib olish\n"
-            f"• Darsdan necha daqiqa oldin xohlasangiz, shuncha vaqt oldin eslatma\n"
-            f"• Har doim qo'l ostida: bugungi va ertangi darslar"
+            f"👋 <b>Salom, {name}!</b>\n\n"
+            f"Men dars jadvalingizni saqlayman va har bir darsdan oldin eslatib turaman."
         )
 
     if not current_user.group_id:
