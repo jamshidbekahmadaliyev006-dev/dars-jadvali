@@ -4,6 +4,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from app.bot.handlers.registration import start_registration
 from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
+from app.bot.text_utils import esc
 from app.models.enums import UserRole
 from app.models.user import User
 
@@ -18,7 +19,7 @@ async def handle_start(message: Message, state: FSMContext, current_user: User, 
     fakultet/guruh) bosqichini boshlaydi, aks holda roliga mos menyuni ochadi.
     """
     greeting = "Assalomu alaykum"
-    name = current_user.first_name or "Talaba"
+    name = esc(current_user.first_name) or "Talaba"
 
     if current_user.role == UserRole.ADMIN:
         welcome_text = (

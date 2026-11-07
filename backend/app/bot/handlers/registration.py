@@ -4,6 +4,7 @@ from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
 from app.bot.states import RegistrationStates
+from app.bot.text_utils import esc
 from app.models.enums import UserRole
 from app.models.user import User
 from app.services.university_service import UniversityService
@@ -81,9 +82,9 @@ async def process_group(
     kb = get_admin_main_keyboard() if current_user.role == UserRole.ADMIN else get_user_main_keyboard()
     await message.answer(
         f"✅ <b>Ro'yxatdan muvaffaqiyatli o'tdingiz!</b>\n\n"
-        f"🏛 <b>Universitet:</b> {univ.name}\n"
-        f"🏢 <b>Fakultet:</b> {faculty.name}\n"
-        f"👥 <b>Guruh:</b> {group.name}\n\n"
+        f"🏛 <b>Universitet:</b> {esc(univ.name)}\n"
+        f"🏢 <b>Fakultet:</b> {esc(faculty.name)}\n"
+        f"👥 <b>Guruh:</b> {esc(group.name)}\n\n"
         f"Endi dars jadvali screenshotini yuboring — men uni avtomatik o'qib, "
         f"jadvalingizga qo'shib, eslatmalarni yoqib qo'yaman 📸",
         parse_mode="HTML",

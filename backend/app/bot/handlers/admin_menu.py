@@ -3,6 +3,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
+from app.bot.text_utils import esc
 from app.models.enums import SubmissionStatus, UserRole
 from app.models.log import Announcement
 from app.models.schedule import Schedule, ScheduleSubmission
@@ -118,7 +119,7 @@ async def handle_approve_submission_callback(query: CallbackQuery, current_user:
     if updated:
         if updated.admin_notes and "⚠️" in updated.admin_notes:
             await query.message.edit_text(
-                f"✅ <b>Ariza #{sub_id} tasdiqlandi.</b>\n\n{updated.admin_notes}",
+                f"✅ <b>Ariza #{sub_id} tasdiqlandi.</b>\n\n{esc(updated.admin_notes)}",
                 parse_mode="HTML",
             )
         else:
@@ -160,7 +161,7 @@ async def handle_admin_universities(message: Message, current_user: User, sessio
     lines = ["🏛 <b>Mavjud Universitetlar:</b>\n"]
     for u in univs[:10]:
         st = "🟢" if u.is_active else "🔴"
-        lines.append(f"{st} <b>{u.name}</b> ({u.short_name or '-'}) [ID: {u.id}]")
+        lines.append(f"{st} <b>{esc(u.name)}</b> ({esc(u.short_name) or '-'}) [ID: {u.id}]")
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 
@@ -195,7 +196,7 @@ async def handle_admin_users(message: Message, current_user: User, session: Asyn
     lines = ["👤 <b>Oxirgi ro'yxatdan o'tganlar:</b>\n"]
     for u in users:
         role_icon = "👑" if u.role == UserRole.ADMIN else "🎓"
-        lines.append(f"{role_icon} {u.first_name} (@{u.username or 'yo‘q'}) — ID: <code>{u.telegram_id}</code> [{u.role.value}]")
+        lines.append(f"{role_icon} {esc(u.first_name)} (@{esc(u.username) or 'yo‘q'}) — ID: <code>{u.telegram_id}</code> [{u.role.value}]")
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 
@@ -210,7 +211,7 @@ async def handle_admin_announcements(message: Message, current_user: User, sessi
         return
     lines = ["📢 <b>So'nggi e'lonlar:</b>\n"]
     for a in ann_list:
-        lines.append(f"📌 <b>{a.title}</b>\n{a.content[:100]}...\n")
+        lines.append(f"📌 <b>{esc(a.title)}</b>\n{esc(a.content[:100])}...\n")
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 

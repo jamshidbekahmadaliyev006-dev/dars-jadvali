@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.handlers.registration import start_registration
 from app.bot.states import ReminderStates
+from app.bot.text_utils import esc
 from app.core.config import settings
 from app.core.logging import logger
 from app.models.enums import DayOfWeek, SubmissionStatus, UserRole
@@ -58,10 +59,10 @@ async def handle_today_lessons(message: Message, current_user: User, session: As
 
     lines = [f"📅 <b>Bugungi darslar ({DAY_LABELS_UZ[today_enum]}):</b>\n"]
     for s in schedules:
-        subj = s.subject.name if s.subject else "Fan"
-        teacher = f" | {s.teacher.full_name}" if s.teacher else ""
-        room = f" | {s.room.number}-xona" if s.room else ""
-        lines.append(f"⏰ <b>{s.start_time} - {s.end_time}</b>\n📚 {subj}{room}{teacher}\n")
+        subj = esc(s.subject.name) if s.subject else "Fan"
+        teacher = f" | {esc(s.teacher.full_name)}" if s.teacher else ""
+        room = f" | {esc(s.room.number)}-xona" if s.room else ""
+        lines.append(f"⏰ <b>{esc(s.start_time)} - {esc(s.end_time)}</b>\n📚 {subj}{room}{teacher}\n")
 
     await message.answer("\n".join(lines), parse_mode="HTML")
 
@@ -84,9 +85,9 @@ async def handle_tomorrow_lessons(message: Message, current_user: User, session:
 
     lines = [f"📆 <b>Ertangi darslar ({DAY_LABELS_UZ[tomorrow_enum]}):</b>\n"]
     for s in schedules:
-        subj = s.subject.name if s.subject else "Fan"
-        room = f" | {s.room.number}-xona" if s.room else ""
-        lines.append(f"⏰ <b>{s.start_time} - {s.end_time}</b>: {subj}{room}")
+        subj = esc(s.subject.name) if s.subject else "Fan"
+        room = f" | {esc(s.room.number)}-xona" if s.room else ""
+        lines.append(f"⏰ <b>{esc(s.start_time)} - {esc(s.end_time)}</b>: {subj}{room}")
 
     await message.answer("\n".join(lines), parse_mode="HTML")
 
@@ -118,10 +119,10 @@ async def handle_full_schedule(message: Message, current_user: User, session: As
         day_schedules.sort(key=lambda s: s.start_time)
         lines.append(f"\n📌 <b>{DAY_LABELS_UZ[day]}</b>")
         for s in day_schedules:
-            subj = s.subject.name if s.subject else "Fan"
-            teacher = f" | {s.teacher.full_name}" if s.teacher else ""
-            room = f" | {s.room.number}-xona" if s.room else ""
-            lines.append(f"  ⏰ {s.start_time}-{s.end_time}: {subj}{room}{teacher}")
+            subj = esc(s.subject.name) if s.subject else "Fan"
+            teacher = f" | {esc(s.teacher.full_name)}" if s.teacher else ""
+            room = f" | {esc(s.room.number)}-xona" if s.room else ""
+            lines.append(f"  ⏰ {esc(s.start_time)}-{esc(s.end_time)}: {subj}{room}{teacher}")
 
     await message.answer("\n".join(lines), parse_mode="HTML")
 
@@ -173,7 +174,7 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
                 photo=file_id,
                 caption=(
                     f"📸 <b>Yangi jadval screenshoti</b>\n"
-                    f"👤 <b>Talaba:</b> {current_user.first_name} (@{current_user.username or 'username yoʻq'})\n"
+                    f"👤 <b>Talaba:</b> {esc(current_user.first_name)} (@{esc(current_user.username) or 'username yoʻq'})\n"
                     f"🆔 <b>Ariza:</b> #{submission.id}"
                 ),
                 parse_mode="HTML",
@@ -227,7 +228,7 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
 
             warning_note = ""
             if approved and approved.admin_notes and "⚠️" in approved.admin_notes:
-                warning_note = f"\n\n{approved.admin_notes.strip()}"
+                warning_note = f"\n\n{esc(approved.admin_notes.strip())}"
 
             await loading_msg.edit_text(
                 f"✅ <b>Jadval muvaffaqiyatli tahlil qilindi va faollashtirildi!</b>\n"
@@ -323,13 +324,14 @@ async def handle_profile(message: Message, current_user: User, session: AsyncSes
 
         group = await UniversityService.get_group_by_id(session, current_user.group_id)
         if group:
-            group_info = f"{group.name} ({group.university.name if group.university else ''})"
+            univ_name = esc(group.university.name) if group.university else ""
+            group_info = f"{esc(group.name)} ({univ_name})"
 
     setting = await ScheduleService.get_or_create_reminder_setting(session, current_user.id)
 
     info_text = (
         f"👤 <b>Profilingiz:</b>\n\n"
-        f"🏷 <b>Ism:</b> {current_user.first_name}\n"
+        f"🏷 <b>Ism:</b> {esc(current_user.first_name)}\n"
         f"🔰 <b>Rol:</b> {role_title}\n"
         f"👥 <b>Guruh:</b> {group_info}\n"
         f"⏰ <b>Eslatma:</b> darsdan {format_minutes_uz(setting.minutes_before)} oldin\n\n"
