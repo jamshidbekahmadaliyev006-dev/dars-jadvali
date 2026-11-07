@@ -9,11 +9,14 @@ def get_user_main_keyboard() -> ReplyKeyboardMarkup:
             KeyboardButton(text="📆 Ertangi darslar"),
         ],
         [
+            KeyboardButton(text="🗓 Umumiy jadval"),
             KeyboardButton(text="📤 Jadval yuborish"),
-            KeyboardButton(text="📊 Jadval holati"),
         ],
         [
+            KeyboardButton(text="📊 Jadval holati"),
             KeyboardButton(text="⏰ Eslatma sozlamalari"),
+        ],
+        [
             KeyboardButton(text="👤 Profilim"),
         ],
     ]

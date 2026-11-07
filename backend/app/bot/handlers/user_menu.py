@@ -91,6 +91,41 @@ async def handle_tomorrow_lessons(message: Message, current_user: User, session:
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 
+@router.message(F.text == "🗓 Umumiy jadval")
+async def handle_full_schedule(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
+    if not current_user.group_id:
+        await start_registration(message, state)
+        return
+
+    schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
+    if not schedules:
+        await message.answer(
+            "🗓 <b>Guruhingiz uchun hali dars jadvali kiritilmagan.</b>\n\n"
+            "Jadval screenshotini <b>📤 Jadval yuborish</b> bo'limi orqali yuboring.",
+            parse_mode="HTML",
+        )
+        return
+
+    by_day: dict[DayOfWeek, list[Schedule]] = {}
+    for s in schedules:
+        by_day.setdefault(s.day_of_week, []).append(s)
+
+    lines = ["🗓 <b>Haftalik umumiy dars jadvali:</b>\n"]
+    for day in DayOfWeek:
+        day_schedules = by_day.get(day)
+        if not day_schedules:
+            continue
+        day_schedules.sort(key=lambda s: s.start_time)
+        lines.append(f"\n📌 <b>{DAY_LABELS_UZ[day]}</b>")
+        for s in day_schedules:
+            subj = s.subject.name if s.subject else "Fan"
+            teacher = f" | {s.teacher.full_name}" if s.teacher else ""
+            room = f" | {s.room.number}-xona" if s.room else ""
+            lines.append(f"  ⏰ {s.start_time}-{s.end_time}: {subj}{room}{teacher}")
+
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
 @router.message(F.text == "📤 Jadval yuborish")
 async def handle_send_schedule_prompt(message: Message, current_user: User, state: FSMContext):
     if not current_user.group_id:
