@@ -11,7 +11,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
-from app.models.enums import DayOfWeek, LessonType, SubmissionStatus
+from app.models.enums import DayOfWeek, LessonType, SubmissionStatus, WeekParity
 
 
 class ScheduleSubmission(Base, TimestampMixin):
@@ -67,6 +67,12 @@ class Schedule(Base, TimestampMixin):
     lesson_type: Mapped[LessonType] = mapped_column(
         Enum(LessonType, native_enum=False, length=20),
         default=LessonType.LECTURE,
+        nullable=False,
+    )
+    week_parity: Mapped[WeekParity] = mapped_column(
+        Enum(WeekParity, native_enum=False, length=10),
+        default=WeekParity.ALL,
+        server_default=WeekParity.ALL.value,
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

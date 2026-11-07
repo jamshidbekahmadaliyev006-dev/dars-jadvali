@@ -1,6 +1,7 @@
 from html import escape
 from typing import Any, Dict, Iterable, List
-from app.models.enums import DayOfWeek
+from app.models.enums import DayOfWeek, WeekParity
+from app.services.schedule_service import current_local_date, week_parity_for
 
 DAY_LABELS_UZ = {
     DayOfWeek.MONDAY: "Dushanba",
@@ -11,6 +12,17 @@ DAY_LABELS_UZ = {
     DayOfWeek.SATURDAY: "Shanba",
     DayOfWeek.SUNDAY: "Yakshanba",
 }
+
+
+PARITY_LABELS_UZ = {
+    WeekParity.ODD: "toq hafta",
+    WeekParity.EVEN: "juft hafta",
+}
+
+
+def parity_suffix(schedule: Any) -> str:
+    label = PARITY_LABELS_UZ.get(schedule.week_parity)
+    return f" | {label}" if label else ""
 
 
 def esc(value: Any) -> str:
@@ -32,7 +44,8 @@ def format_weekly_schedule(schedules: Iterable[Any]) -> str:
     for s in schedules:
         by_day.setdefault(s.day_of_week, []).append(s)
 
-    lines = ["🗓 <b>Haftalik umumiy dars jadvali:</b>"]
+    current_label = PARITY_LABELS_UZ[week_parity_for(current_local_date())]
+    lines = [f"🗓 <b>Haftalik umumiy dars jadvali</b>\nHozir: {current_label}"]
     for day in DayOfWeek:
         day_schedules = by_day.get(day)
         if not day_schedules:
@@ -43,5 +56,5 @@ def format_weekly_schedule(schedules: Iterable[Any]) -> str:
             subj = esc(s.subject.name) if s.subject else "Fan"
             teacher = f" | {esc(s.teacher.full_name)}" if s.teacher else ""
             room = f" | {esc(s.room.number)}-xona" if s.room else ""
-            lines.append(f"  ⏰ {esc(s.start_time)}-{esc(s.end_time)}: {subj}{room}{teacher}")
+            lines.append(f"  ⏰ {esc(s.start_time)}-{esc(s.end_time)}: {subj}{room}{teacher}{parity_suffix(s)}")
     return "\n".join(lines)

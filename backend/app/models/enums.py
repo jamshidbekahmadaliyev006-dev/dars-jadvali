@@ -26,6 +26,12 @@ class DayOfWeek(str, enum.Enum):
     SUNDAY = "SUNDAY"
 
 
+class WeekParity(str, enum.Enum):
+    ALL = "ALL"
+    ODD = "ODD"
+    EVEN = "EVEN"
+
+
 class TaskPriority(str, enum.Enum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"

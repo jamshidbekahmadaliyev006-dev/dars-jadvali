@@ -1,11 +1,13 @@
-from datetime import datetime
+from datetime import date, datetime, timedelta
 import json
 from typing import Any, Dict, List, Optional
+import pytz
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from app.core.config import settings
 from app.core.logging import logger
-from app.models.enums import DayOfWeek, LessonType, SubmissionStatus
+from app.models.enums import DayOfWeek, LessonType, SubmissionStatus, WeekParity
 from app.models.schedule import ReminderSetting, Schedule, ScheduleSubmission
 from app.models.university import Building, Room, Subject, Teacher
 from app.schemas.schedule import ReminderSettingUpdate, ScheduleCreate, ScheduleSubmissionCreate, ScheduleSubmissionReview, ScheduleUpdate
@@ -52,6 +54,25 @@ def resolve_day_of_week(raw: Optional[str]) -> Optional[DayOfWeek]:
     return None
 
 
+def current_local_date() -> date:
+    return datetime.now(pytz.timezone(settings.TIMEZONE)).date()
+
+
+def week_parity_for(day: date) -> WeekParity:
+    """Berilgan sana universitet hisobida toq yoki juft haftaga tushishini aniqlaydi"""
+    anchor = settings.WEEK_PARITY_ODD_MONDAY
+    anchor_monday = anchor - timedelta(days=anchor.weekday())
+    day_monday = day - timedelta(days=day.weekday())
+    weeks_apart = (day_monday - anchor_monday).days // 7
+    return WeekParity.ODD if weeks_apart % 2 == 0 else WeekParity.EVEN
+
+
+def resolve_week_parity(raw: Optional[str]) -> WeekParity:
+    """AI qaytargan belgini WeekParity'ga aylantiradi; noma'lum qiymat har hafta deb olinadi"""
+    key = (raw or "").strip().upper()
+    return WeekParity[key] if key in WeekParity.__members__ else WeekParity.ALL
+
+
 def format_minutes_uz(minutes: int) -> str:
     """Daqiqa sonini odam uchun tushunarli shaklga o'tkazadi: 30 -> '30 daqiqa (yarim soat)' kabi"""
     if minutes <= 0:
@@ -73,6 +94,7 @@ class ScheduleService:
         group_id: Optional[int] = None,
         university_id: Optional[int] = None,
         day_of_week: Optional[DayOfWeek] = None,
+        week_parity: Optional[WeekParity] = None,
     ) -> List[Schedule]:
         stmt = (
             select(Schedule)
@@ -90,6 +112,8 @@ class ScheduleService:
             stmt = stmt.where(Schedule.university_id == university_id)
         if day_of_week:
             stmt = stmt.where(Schedule.day_of_week == day_of_week)
+        if week_parity:
+            stmt = stmt.where(Schedule.week_parity.in_([WeekParity.ALL, week_parity]))
 
         stmt = stmt.order_by(Schedule.day_of_week.asc(), Schedule.start_time.asc())
         result = await session.execute(stmt)
@@ -239,6 +263,7 @@ class ScheduleService:
                         start_time=item["start_time"],
                         end_time=item["end_time"],
                         lesson_type=lesson_type_enum,
+                        week_parity=resolve_week_parity(item.get("week_parity")),
                     )
                     session.add(sched)
                 await session.commit()
@@ -361,6 +386,8 @@ class ScheduleService:
             lesson_type_str = (item.get("lesson_type") or "LECTURE").upper()
             lesson_type_enum = LessonType[lesson_type_str] if lesson_type_str in LessonType.__members__ else LessonType.LECTURE
 
+            week_parity = resolve_week_parity(item.get("week_parity"))
+
             # Bir xil guruh/fan/kun/vaqt uchun qator allaqachon mavjudmi - tekshirib, bo'lsa
             # UNI YANGILAYMIZ (qayta-qayta screenshot yuborilganda darslar ko'payib ketmasligi
             # uchun), aks holda yangi qator yaratamiz
@@ -369,6 +396,7 @@ class ScheduleService:
                 Schedule.subject_id == subject.id,
                 Schedule.day_of_week == day_enum,
                 Schedule.start_time == start_time,
+                Schedule.week_parity == week_parity,
             )
             dup_result = await session.execute(dup_stmt)
             sched = dup_result.scalars().first()
@@ -390,6 +418,7 @@ class ScheduleService:
                     start_time=start_time,
                     end_time=end_time,
                     lesson_type=lesson_type_enum,
+                    week_parity=week_parity,
                 )
                 session.add(sched)
             created.append(sched)

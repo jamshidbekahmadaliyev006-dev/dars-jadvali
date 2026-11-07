@@ -1,4 +1,5 @@
 import os
+from datetime import date
 from functools import lru_cache
 from typing import List, Optional
 from pydantic import Field, field_validator
@@ -29,6 +30,11 @@ class Settings(BaseSettings):
 
     # Timezone
     TIMEZONE: str = "Asia/Tashkent"
+
+    # Toq hafta boshlanadigan istalgan dushanba. Universitet hisobi ISO hafta raqamiga mos
+    # kelmaydi (2026-11-09 ISO bo'yicha 46-hafta, universitetda esa toq), shuning uchun shu
+    # sanadan sanaladi. Yangi semestrda hisob surilsa, shu qiymat yangilanadi.
+    WEEK_PARITY_ODD_MONDAY: date = date(2026, 11, 9)
 
     # AI Provider Settings
     AI_PROVIDER: str = Field(default="mock", description="AI Provider: mock, gemini, groq")

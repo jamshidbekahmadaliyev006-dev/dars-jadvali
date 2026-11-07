@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import pytz
 from aiogram import F, Router
@@ -19,7 +19,7 @@ from app.models.user import User
 from app.schemas.schedule import ReminderSettingUpdate, ScheduleSubmissionCreate, ScheduleSubmissionReview
 from app.services.ai_provider import MockAIProvider, get_ai_provider
 from app.services.ai_service import AIService
-from app.services.schedule_service import ScheduleService, format_minutes_uz
+from app.services.schedule_service import ScheduleService, current_local_date, format_minutes_uz, week_parity_for
 
 router = Router(name="user_menu")
 
@@ -38,7 +38,12 @@ async def handle_today_lessons(message: Message, current_user: User, session: As
         return
 
     today_enum, _ = get_today_tomorrow_enums()
-    schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id, day_of_week=today_enum)
+    schedules = await ScheduleService.get_schedules(
+        session,
+        group_id=current_user.group_id,
+        day_of_week=today_enum,
+        week_parity=week_parity_for(current_local_date()),
+    )
 
     if not schedules:
         await message.answer(
@@ -64,7 +69,12 @@ async def handle_tomorrow_lessons(message: Message, current_user: User, session:
         return
 
     _, tomorrow_enum = get_today_tomorrow_enums()
-    schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id, day_of_week=tomorrow_enum)
+    schedules = await ScheduleService.get_schedules(
+        session,
+        group_id=current_user.group_id,
+        day_of_week=tomorrow_enum,
+        week_parity=week_parity_for(current_local_date() + timedelta(days=1)),
+    )
 
     if not schedules:
         await message.answer(

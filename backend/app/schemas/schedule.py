@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict
-from app.models.enums import DayOfWeek, LessonType, SubmissionStatus
+from app.models.enums import DayOfWeek, LessonType, SubmissionStatus, WeekParity
 from app.schemas.university import GroupResponse, RoomResponse, SubjectResponse, TeacherResponse, UniversityResponse
 
 
@@ -15,6 +15,7 @@ class ScheduleBase(BaseModel):
     start_time: str  # "09:00"
     end_time: str    # "10:20"
     lesson_type: LessonType = LessonType.LECTURE
+    week_parity: WeekParity = WeekParity.ALL
     is_active: bool = True
 
 
@@ -30,6 +31,7 @@ class ScheduleUpdate(BaseModel):
     start_time: Optional[str] = None
     end_time: Optional[str] = None
     lesson_type: Optional[LessonType] = None
+    week_parity: Optional[WeekParity] = None
     is_active: Optional[bool] = None
 
 

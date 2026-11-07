@@ -7,13 +7,13 @@ from app.bot.bot_instance import get_bot
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.logging import logger
-from app.models.enums import DayOfWeek, NotificationType
+from app.models.enums import DayOfWeek, NotificationType, WeekParity
 from app.models.log import NotificationLog
 from app.models.schedule import ReminderSetting, Schedule
 from app.models.university import Group, Room
 from app.models.user import User
 from app.bot.text_utils import esc
-from app.services.schedule_service import format_minutes_uz
+from app.services.schedule_service import format_minutes_uz, week_parity_for
 
 
 async def check_and_send_lesson_reminders():
@@ -38,7 +38,11 @@ async def check_and_send_lesson_reminders():
                     selectinload(Schedule.group).selectinload(Group.university),
                     selectinload(Schedule.room).selectinload(Room.building),
                 )
-                .where(Schedule.day_of_week == today_enum, Schedule.is_active == True)
+                .where(
+                    Schedule.day_of_week == today_enum,
+                    Schedule.is_active == True,
+                    Schedule.week_parity.in_([WeekParity.ALL, week_parity_for(now.date())]),
+                )
             )
             res = await session.execute(stmt)
             schedules = res.scalars().all()
