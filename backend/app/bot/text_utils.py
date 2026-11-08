@@ -13,6 +13,62 @@ from app.models.enums import DayOfWeek
 from app.services.schedule_service import current_local_date, week_parity_for
 
 
+def _minutes(value: str) -> int:
+    try:
+        hours, minutes = str(value).split(":")[:2]
+        return int(hours) * 60 + int(minutes)
+    except Exception:
+        return -1
+
+
+def schedule_issues(lessons: Sequence[Dict[str, Any]], lang: str = DEFAULT_LANG, from_image: bool = True) -> List[str]:
+    """
+    AI o'qigan jadvaldagi shubhali joylar: talabaga aniq aytamiz - qaysi dars, qanday kamchilik.
+    """
+    from app.services.schedule_service import resolve_day_of_week
+
+    issues: List[str] = []
+    no_building = [i for i in lessons if i.get("room") and not i.get("building")] if from_image else []
+    # Bino ko'p darsda yo'q bo'lsa - har birini sanab o'tirmay, bitta qatorda aytamiz
+    group_building = len(no_building) > 3
+    if group_building:
+        rooms = sorted({str(i.get("room")) for i in no_building})
+        issues.append("• " + t(lang, "issue_building_many", n=len(no_building), rooms=esc(", ".join(rooms[:8]))))
+    for item in lessons:
+        day = item.get("day") or "?"
+        start = item.get("start_time") or ""
+        subject = (item.get("subject") or "?")[:40]
+        label = f"{esc(day)} {esc(start)} — {esc(subject)}"
+        problems = []
+        if not resolve_day_of_week(item.get("day")):
+            problems.append(t(lang, "issue_day"))
+        if _minutes(start) < 0 or _minutes(item.get("end_time") or "") < 0:
+            problems.append(t(lang, "issue_time"))
+        elif _minutes(item.get("end_time")) <= _minutes(start):
+            problems.append(t(lang, "issue_time_order"))
+        if not item.get("room"):
+            problems.append(t(lang, "issue_room"))
+        elif from_image and not item.get("building") and not group_building:
+            problems.append(t(lang, "issue_building"))
+        if problems:
+            issues.append(f"• {label}: {', '.join(problems)}")
+
+    # Bir kunda, bir hafta turida vaqti ustma-ust tushgan turli darslar
+    seen = sorted(
+        (i for i in lessons if _minutes(i.get("start_time") or "") >= 0 and _minutes(i.get("end_time") or "") >= 0),
+        key=lambda i: (str(i.get("day")), _minutes(i.get("start_time"))),
+    )
+    for a, b in zip(seen, seen[1:]):
+        same_slot = a.get("day") == b.get("day")
+        parity_clash = "ALL" in (a.get("week_parity"), b.get("week_parity")) or a.get("week_parity") == b.get("week_parity")
+        if same_slot and parity_clash and _minutes(b.get("start_time")) < _minutes(a.get("end_time")):
+            issues.append(
+                f"• {esc(a.get('day'))} {esc(b.get('start_time'))}: "
+                + t(lang, "issue_overlap", a=esc((a.get("subject") or "?")[:30]), b=esc((b.get("subject") or "?")[:30]))
+            )
+    return issues
+
+
 async def show_typing(message: Any) -> None:
     """'yozmoqda...' animatsiyasi - faqat bezak, xato bo'lsa asosiy ish to'xtamasligi kerak"""
     try:

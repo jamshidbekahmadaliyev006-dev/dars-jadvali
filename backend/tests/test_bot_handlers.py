@@ -370,3 +370,29 @@ def test_russian_counts_use_correct_plural():
 
     assert format_counts(6, 15, "ru") == "6 предметов · 15 занятий"
     assert format_counts(1, 2, "ru") == "1 предмет · 2 занятия"
+
+
+def test_schedule_issues_tells_student_what_is_wrong():
+    from app.bot.text_utils import schedule_issues
+
+    lessons = [
+        {"day": "Dushanba", "subject": "Matematika", "start_time": "08:00", "end_time": "09:30", "room": "327", "building": None, "week_parity": "ALL"},
+        {"day": "Dushanba", "subject": "Fizika", "start_time": "09:00", "end_time": "10:20", "room": None, "building": None, "week_parity": "ALL"},
+        {"day": "Payshanbe?", "subject": "Kimyo", "start_time": "11:00", "end_time": "", "room": "A-1", "building": "A", "week_parity": "ALL"},
+    ]
+    text = "\n".join(schedule_issues(lessons, "uz"))
+    assert "bino aniqlanmadi" in text
+    assert "xona ko'rsatilmagan" in text
+    assert "kun aniqlanmadi" in text and "vaqt to'liq emas" in text
+    assert "ustma-ust" in text
+
+
+def test_schedule_issues_groups_many_missing_buildings_into_one_line():
+    from app.bot.text_utils import schedule_issues
+
+    lessons = [
+        {"day": "Dushanba", "subject": f"Fan {i}", "start_time": f"{8 + i * 2:02d}:00", "end_time": f"{9 + i * 2:02d}:00", "room": str(400 + i), "building": None, "week_parity": "ALL"}
+        for i in range(5)
+    ]
+    issues = schedule_issues(lessons, "uz")
+    assert len(issues) == 1 and "5 ta darsda bino aniqlanmadi" in issues[0]

@@ -1,11 +1,24 @@
 from abc import ABC, abstractmethod
+import asyncio
 import base64
 import json
+import time
 from typing import Any, Dict, List, Optional
 import httpx
 from app.core.config import settings
 from app.core.logging import logger
 from app.schemas.ai import ExtractedLessonItem, ExtractedScheduleResult
+
+
+def _detect_image_mime(data: bytes, filename: str = "") -> str:
+    """Fayl sifatida yuborilgan rasm PNG yoki WEBP bo'lishi mumkin - turini baytlardan aniqlaymiz"""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if filename.lower().endswith(".png"):
+        return "image/png"
+    return "image/jpeg"
 
 
 class BaseAIProvider(ABC):
@@ -143,9 +156,18 @@ class GeminiAIProvider(BaseAIProvider):
 
     # Yengil modellar real jadval rasmini ~5 soniyada o'qiydi; gemini-flash-latest esa band
     # paytda 503 qaytarib, 40 soniyadan ko'proq ushlab turadi. Birinchisi ishlamasa ikkinchisi.
-    VISION_MODELS = ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
+    # Tez modellar oldinda; ular band bo'lsa (503) zaxira modellar ishlatiladi
+    VISION_MODELS = (
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-2.5-flash-lite",
+        "gemini-3.5-flash",
+        "gemini-2.5-flash",
+    )
     CHAT_MODEL = "gemini-3.5-flash-lite"
     REQUEST_TIMEOUT_SECONDS = 30.0
+    TOTAL_BUDGET_SECONDS = 75.0
 
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -179,13 +201,26 @@ class GeminiAIProvider(BaseAIProvider):
 
     async def extract_schedule_from_image(self, image_bytes: bytes, filename: str = "schedule.jpg") -> ExtractedScheduleResult:
         base64_data = base64.b64encode(image_bytes).decode("utf-8")
-        mime_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
+        mime_type = _detect_image_mime(image_bytes, filename)
 
         prompt = (
-            "Bu universitet haftalik dars jadvali rasmi. Har bir rangli blok yoki jadval katagi bitta dars. "
-            "Ustun yoki qator sarlavhasi kun, blokdagi vaqt boshlanish vaqti. Tugash vaqti yozilmagan bo'lsa, "
-            "blok balandligi va vaqt o'qidan aniqlang. Bir vaqtda ikkita dars bo'lsa, ikkalasini ham yozing. "
-            "Fan nomi va xonani rasmda qanday yozilgan bo'lsa, aynan shunday ko'chiring. "
+            "Bu universitet haftalik dars jadvali rasmi. U har xil ko'rinishda bo'lishi mumkin: HEMIS skrinshoti "
+            "(rangli bloklar), Excel/Word jadvali, qog'ozdagi jadval fotosi, telefon skrinshoti, o'zbek yoki rus tilida. "
+            "Avval jadval tuzilishini aniqlang: kunlar ustunlardami yoki qatorlarda, vaqt qayerda yozilgan.\n"
+            "- Har bir blok yoki katak bitta dars. Bo'sh kataklarni o'tkazib yuboring.\n"
+            "- Vaqt blok ichida yoki chap/yuqoridagi vaqt o'qida bo'ladi. Tugash vaqti yozilmagan bo'lsa, "
+            "blok balandligi va vaqt o'qidan aniqlang. Faqat para raqami (1-para, 2-para) bo'lsa va jadvalda "
+            "paralar vaqti yozilgan bo'lsa - o'shandan oling.\n"
+            "- Bir vaqtda yonma-yon ikkita blok bo'lsa (masalan 'Toq hafta' va 'Juft hafta'), ikkalasini ham yozing.\n"
+            "- Har bir kunning barcha darslarini oxirigacha o'qing, birortasini ham tashlab ketmang.\n"
+            "XONA VA BINO - diqqat bilan:\n"
+            "- Xona ko'pincha qavs ichida yoziladi: '(A-327)', '(3-407)', '(B blok-214)'. Tire oldidagi qism BINO "
+            "(harf, raqam yoki nom), keyingi qism XONA raqami. building ga faqat binoni ('A', '3', 'B blok'), "
+            "room ga faqat xona raqamini ('327') yozing.\n"
+            "- Bino harf/raqam emas, ikonka bilan chizilgan yoki o'qib bo'lmasa, building = null. "
+            "room hech qachon tire bilan boshlanmasin ('-407' emas, '407').\n"
+            "Fan nomi va kodini aynan ko'chiring. O'qituvchi ko'rinsa teacher ga yozing. Dars turi ko'rinsa "
+            "(ma'ruza=LECTURE, amaliy=PRACTICE, laboratoriya=LAB, seminar=SEMINAR), aks holda OTHER. "
             "Faqat rasmda ko'ringan narsani yozing, hech narsa to'qimang. Rasm dars jadvali bo'lmasa, [] qaytaring. "
             + self.JSON_FORMAT
         )
@@ -213,8 +248,15 @@ class GeminiAIProvider(BaseAIProvider):
 
         # Xato bo'lsa namuna ma'lumot QAYTARILMAYDI: soxta darslar haqiqiy jadvalga yozilib ketardi
         last_error = "noma'lum xato"
+        deadline = time.monotonic() + self.TOTAL_BUDGET_SECONDS
+        # Gemini band bo'lsa (503/429) keyingi modelga o'tamiz; hammasi band bo'lsa bir oz kutib yana bir aylana
+        attempts = [m for m in self.VISION_MODELS] + [m for m in self.VISION_MODELS[:2]]
         async with httpx.AsyncClient(timeout=self.REQUEST_TIMEOUT_SECONDS) as client:
-            for model in self.VISION_MODELS:
+            for index, model in enumerate(attempts):
+                if time.monotonic() > deadline:
+                    break
+                if index == len(self.VISION_MODELS):
+                    await asyncio.sleep(2)
                 try:
                     res = await client.post(
                         f"{self.base_url}/{model}:generateContent",

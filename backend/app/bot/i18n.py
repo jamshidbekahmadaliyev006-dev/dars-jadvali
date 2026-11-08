@@ -113,6 +113,46 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "uz": "💬 <b>Admin javobi</b>\n\n{text}",
         "ru": "💬 <b>Ответ администратора</b>\n\n{text}",
     },
+    "issues_header": {
+        "uz": "⚠️ <b>Jadvalingizda tekshirish kerak bo'lgan joylar:</b>",
+        "ru": "⚠️ <b>В расписании есть места, которые нужно проверить:</b>",
+    },
+    "issues_more": {"uz": "… va yana {n} ta", "ru": "… и ещё {n}"},
+    "issues_footer": {
+        "uz": "Xato bo'lsa: 📅 Dars jadvali → <b>🔄 Jadval o'zgardi</b> orqali to'g'ri rasm yoki matn yuboring.",
+        "ru": "Если есть ошибка: 📅 Расписание → <b>🔄 Расписание изменилось</b> и отправьте верное фото или текст.",
+    },
+    "issues_file_tip": {
+        "uz": "🏢 Bino rasmda ikonka bilan chizilgan yoki juda mayda. Jadvalni <b>fayl qilib</b> yuborsangiz "
+              "(📎 → Fayl → rasm), Telegram uni siqmaydi va bino ham o'qilishi mumkin.",
+        "ru": "🏢 Корпус на фото нарисован иконкой или слишком мелкий. Отправьте расписание <b>файлом</b> "
+              "(📎 → Файл → фото) - Telegram не сожмёт его, и корпус может распознаться.",
+    },
+    "issue_day": {"uz": "kun aniqlanmadi (saqlanmadi)", "ru": "день не распознан (не сохранено)"},
+    "issue_time": {"uz": "vaqt to'liq emas (saqlanmadi)", "ru": "время неполное (не сохранено)"},
+    "issue_time_order": {"uz": "tugash vaqti boshlanishidan oldin", "ru": "конец раньше начала"},
+    "issue_room": {"uz": "xona ko'rsatilmagan", "ru": "аудитория не указана"},
+    "issue_building": {"uz": "bino aniqlanmadi", "ru": "корпус не распознан"},
+    "issue_building_many": {
+        "uz": "{n} ta darsda bino aniqlanmadi (xonalar: {rooms})",
+        "ru": "у {n} занятий не распознан корпус (аудитории: {rooms})",
+    },
+    "issue_overlap": {
+        "uz": "«{a}» va «{b}» vaqti ustma-ust tushadi",
+        "ru": "«{a}» и «{b}» пересекаются по времени",
+    },
+    "btn_schedule_changed": {"uz": "🔄 Jadval o'zgardi", "ru": "🔄 Расписание изменилось"},
+    "schedule_change_prompt": {
+        "uz": "🔄 <b>Jadval o'zgardimi?</b>\n\nYangi jadvalning <b>rasmini</b> (yoki faylini) yuboring, "
+              "yoki o'zgarishni <b>yozib</b> yuboring. Butun haftani yozing, masalan:\n\n"
+              "<code>Dushanba 08:00-09:30 Matematika A-327</code>\n\n"
+              "AI o'qib chiqadi, admin tasdiqlagach guruhingiz jadvali yangilanadi.",
+        "ru": "🔄 <b>Расписание изменилось?</b>\n\nОтправьте <b>фото</b> (или файл) нового расписания "
+              "или <b>напишите</b> его текстом за всю неделю, например:\n\n"
+              "<code>Понедельник 08:00-09:30 Математика A-327</code>\n\n"
+              "AI распознает его, и после подтверждения админом расписание группы обновится.",
+    },
+    "file_too_big": {"uz": "❗ Fayl juda katta (15 MB dan kichik bo'lsin).", "ru": "❗ Файл слишком большой (до 15 МБ)."},
     "profile_university": {"uz": "🏛 Universitet: {name}", "ru": "🏛 Университет: {name}"},
     "profile_faculty": {"uz": "🎓 Fakultet: {name}", "ru": "🎓 Факультет: {name}"},
     "profile_lang": {"uz": "🌐 Til: O'zbekcha", "ru": "🌐 Язык: Русский"},

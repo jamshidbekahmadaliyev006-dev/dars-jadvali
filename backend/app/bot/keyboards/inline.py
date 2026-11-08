@@ -62,7 +62,8 @@ def week_days_keyboard(lang: str = DEFAULT_LANG, active: int = -1) -> InlineKeyb
         text=f"• {t(lang, 'btn_week_all')} •" if active == -1 else t(lang, "btn_week_all"),
         callback_data="day_all",
     )
-    return InlineKeyboardMarkup(inline_keyboard=[row, [footer]])
+    change = InlineKeyboardButton(text=t(lang, "btn_schedule_changed"), callback_data="sched_change")
+    return InlineKeyboardMarkup(inline_keyboard=[row, [footer], [change]])
 
 
 def profile_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:

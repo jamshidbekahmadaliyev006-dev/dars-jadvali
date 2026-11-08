@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import json
+import time
 from typing import List, Optional
 import pytz
 from aiogram import F, Router
@@ -19,8 +20,9 @@ from app.bot.keyboards.inline import (
     reminder_minutes_keyboard,
     week_days_keyboard,
 )
-from app.bot.states import ReminderStates
+from app.bot.states import RegistrationStates, ReminderStates
 from app.bot.text_utils import (
+    schedule_issues,
     show_typing,
     esc,
     format_day_schedule,
@@ -38,6 +40,8 @@ from app.schemas.schedule import ReminderSettingUpdate, ScheduleSubmissionCreate
 from app.services.ai_provider import MockAIProvider, get_ai_provider
 from app.services.ai_service import AIService
 from app.services.schedule_service import (
+    SCHEDULE_VIEW_CACHE,
+    SCHEDULE_VIEW_TTL_SECONDS,
     ScheduleService,
     current_local_date,
     normalize_subject_name,
@@ -121,29 +125,51 @@ async def handle_day_tab(query: CallbackQuery, current_user: User, session: Asyn
         await query.answer(t(lang, "no_schedule"), show_alert=True)
         return
 
+    # Avval javob beramiz - Telegram tugmadagi "yuklanmoqda" belgisini darhol olib tashlaydi
+    await query.answer()
+
+    # Hozir ochiq turgan kun yana bosilsa - hech narsa qilmaymiz (keraksiz so'rov yo'q)
+    markup = query.message.reply_markup
+    if markup and any(
+        b.callback_data == query.data and b.text.startswith("•") for row in markup.inline_keyboard for b in row
+    ):
+        return
+
     choice = query.data.split("_", 1)[1]
-    if choice == "all":
-        active = -1
-        schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
-        text = format_weekly_schedule(schedules, lang) if schedules else t(lang, "no_schedule")
-    else:
-        active = int(choice)
-        day_enum = list(DayOfWeek)[active]
+    active = -1 if choice == "all" else int(choice)
+    parity = None
+    if active >= 0:
         today = current_local_date()
-        target = today + timedelta(days=active - today.weekday())
-        schedules = await ScheduleService.get_schedules(
-            session,
-            group_id=current_user.group_id,
-            day_of_week=day_enum,
-            week_parity=week_parity_for(target),
-        )
-        text = format_day_schedule("📅", DAY_LABELS[lang][day_enum], schedules, lang)
+        parity = week_parity_for(today + timedelta(days=active - today.weekday()))
+
+    cache_key = (current_user.group_id, lang, active, parity)
+    cached = SCHEDULE_VIEW_CACHE.get(cache_key)
+    if cached and time.monotonic() - cached[0] < SCHEDULE_VIEW_TTL_SECONDS:
+        text = cached[1]
+    else:
+        if active == -1:
+            schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
+            text = format_weekly_schedule(schedules, lang) if schedules else t(lang, "no_schedule")
+        else:
+            day_enum = list(DayOfWeek)[active]
+            schedules = await ScheduleService.get_schedules(
+                session, group_id=current_user.group_id, day_of_week=day_enum, week_parity=parity,
+            )
+            text = format_day_schedule("📅", DAY_LABELS[lang][day_enum], schedules, lang)
+        SCHEDULE_VIEW_CACHE[cache_key] = (time.monotonic(), text)
 
     try:
         await query.message.edit_text(text, parse_mode="HTML", reply_markup=week_days_keyboard(lang, active))
     except TelegramBadRequest:
-        pass  # xuddi shu kun qayta bosildi - matn o'zgarmagan
+        pass  # matn o'zgarmagan
+
+
+@router.callback_query(F.data == "sched_change")
+async def handle_schedule_change(query: CallbackQuery, state: FSMContext, current_user: User):
+    """Jadval o'zgardi: yangi rasm yoki matn kutiladi, admin tasdiqlagach guruh jadvali almashadi"""
     await query.answer()
+    await state.set_state(RegistrationStates.waiting_schedule)
+    await query.message.answer(t(lang_of(current_user), "schedule_change_prompt"), parse_mode="HTML")
 
 
 @router.message(F.text.in_(labels("btn_send")))
@@ -181,7 +207,11 @@ async def _notify_admins(
             lines.append(f"📚 {format_counts(subject_count, lesson_count, admin_lang)}")
         markup = admin_review_keyboard(submission_id, admin_lang) if needs_review else None
         try:
-            if file_id and file_id != "text":
+            if file_id and file_id != "text" and message.document:
+                await message.bot.send_document(
+                    chat_id=admin_id, document=file_id, caption="\n".join(lines), parse_mode="HTML", reply_markup=markup,
+                )
+            elif file_id and file_id != "text":
                 await message.bot.send_photo(
                     chat_id=admin_id, photo=file_id, caption="\n".join(lines), parse_mode="HTML", reply_markup=markup,
                 )
@@ -205,12 +235,28 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
     await process_schedule_input(message, current_user, session, file_id=message.photo[-1].file_id)
 
 
+# Rasm fayl qilib yuborilsa Telegram uni siqmaydi - mayda yozuvlar (bino, xona) aniqroq o'qiladi
+@router.message(F.document.mime_type.startswith("image/"))
+async def handle_schedule_document_upload(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
+    lang = lang_of(current_user)
+    if not current_user.university_id or not current_user.group_id:
+        await start_registration(message, state, session, lang)
+        return
+    if (message.document.file_size or 0) > 15 * 1024 * 1024:
+        await message.answer(t(lang, "file_too_big"))
+        return
+
+    await state.clear()
+    await process_schedule_input(message, current_user, session, file_id=message.document.file_id, is_document=True)
+
+
 async def process_schedule_input(
     message: Message,
     current_user: User,
     session: AsyncSession,
     file_id: Optional[str] = None,
     schedule_text: Optional[str] = None,
+    is_document: bool = False,
 ) -> None:
     """Jadval rasmi (file_id) yoki qo'lda yozilgan jadval matnini AI orqali o'qib saqlaydi"""
     lang = lang_of(current_user)
@@ -253,6 +299,21 @@ async def process_schedule_input(
             return
 
         subject_count = len({normalize_subject_name(item.get("subject") or "")[0].lower() for item in lessons})
+
+        # O'qilgan jadvaldagi kamchiliklarni talabaga aniq aytamiz: qaysi dars, nima xato
+        issues = schedule_issues(lessons, lang, from_image=bool(file_id))
+        if issues:
+            shown = issues[:10]
+            if len(issues) > 10:
+                shown.append(t(lang, "issues_more", n=len(issues) - 10))
+            parts = [t(lang, "issues_header"), "", *shown, ""]
+            missing_building = bool(file_id) and not is_document and any(
+                item.get("room") and not item.get("building") for item in lessons
+            )
+            if missing_building:
+                parts += [t(lang, "issues_file_tip"), ""]
+            parts.append(t(lang, "issues_footer"))
+            await message.answer("\n".join(parts), parse_mode="HTML")
 
         # Avtomatik tasdiqlash faqat guruhning birinchi jadvali yoki admin uchun: aks holda
         # istalgan a'zo rasm yuborib, butun guruh jadvalini tekshiruvsiz almashtirib qo'yardi.
