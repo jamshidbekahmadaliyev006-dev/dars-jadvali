@@ -153,6 +153,7 @@ TEXTS: Dict[str, Dict[str, str]] = {
               "AI распознает его, и после подтверждения админом расписание группы обновится.",
     },
     "file_too_big": {"uz": "❗ Fayl juda katta (15 MB dan kichik bo'lsin).", "ru": "❗ Файл слишком большой (до 15 МБ)."},
+    "start_your_data": {"uz": "📋 <b>Ma'lumotlaringiz saqlangan:</b>", "ru": "📋 <b>Ваши данные сохранены:</b>"},
     "profile_university": {"uz": "🏛 Universitet: {name}", "ru": "🏛 Университет: {name}"},
     "profile_faculty": {"uz": "🎓 Fakultet: {name}", "ru": "🎓 Факультет: {name}"},
     "profile_lang": {"uz": "🌐 Til: O'zbekcha", "ru": "🌐 Язык: Русский"},
