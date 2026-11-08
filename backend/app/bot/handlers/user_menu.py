@@ -3,6 +3,8 @@ import json
 from typing import List
 import pytz
 from aiogram import F, Router
+from aiogram.enums import ChatAction
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -10,7 +12,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.handlers.registration import start_registration
 from app.bot.i18n import DAY_LABELS, STATUS_LABELS, format_counts, format_minutes, labels, lang_of, t
-from app.bot.keyboards.inline import admin_review_keyboard, reminder_minutes_keyboard
+from app.bot.keyboards.inline import (
+    admin_review_keyboard,
+    language_keyboard,
+    profile_keyboard,
+    reminder_minutes_keyboard,
+    week_days_keyboard,
+)
 from app.bot.states import ReminderStates
 from app.bot.text_utils import (
     esc,
@@ -23,6 +31,7 @@ from app.core.config import settings
 from app.core.logging import logger
 from app.models.enums import DayOfWeek, SubmissionStatus, UserRole
 from app.models.schedule import ScheduleSubmission
+from app.models.university import Faculty
 from app.models.user import User
 from app.schemas.schedule import ReminderSettingUpdate, ScheduleSubmissionCreate, ScheduleSubmissionReview
 from app.services.ai_provider import MockAIProvider, get_ai_provider
@@ -95,7 +104,45 @@ async def handle_full_schedule(message: Message, current_user: User, session: As
         await message.answer(t(lang, "no_schedule"))
         return
 
-    await message.answer(format_weekly_schedule(schedules, lang), parse_mode="HTML")
+    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    await message.answer(
+        format_weekly_schedule(schedules, lang),
+        parse_mode="HTML",
+        reply_markup=week_days_keyboard(lang),
+    )
+
+
+@router.callback_query(F.data.startswith("day_"))
+async def handle_day_tab(query: CallbackQuery, current_user: User, session: AsyncSession):
+    """Dars jadvali ostidagi kun tugmalari: xabar o'sha joyida almashadi"""
+    lang = lang_of(current_user)
+    if not current_user.group_id:
+        await query.answer(t(lang, "no_schedule"), show_alert=True)
+        return
+
+    choice = query.data.split("_", 1)[1]
+    if choice == "all":
+        active = -1
+        schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
+        text = format_weekly_schedule(schedules, lang) if schedules else t(lang, "no_schedule")
+    else:
+        active = int(choice)
+        day_enum = list(DayOfWeek)[active]
+        today = current_local_date()
+        target = today + timedelta(days=active - today.weekday())
+        schedules = await ScheduleService.get_schedules(
+            session,
+            group_id=current_user.group_id,
+            day_of_week=day_enum,
+            week_parity=week_parity_for(target),
+        )
+        text = format_day_schedule("📅", DAY_LABELS[lang][day_enum], schedules, lang)
+
+    try:
+        await query.message.edit_text(text, parse_mode="HTML", reply_markup=week_days_keyboard(lang, active))
+    except TelegramBadRequest:
+        pass  # xuddi shu kun qayta bosildi - matn o'zgarmagan
+    await query.answer()
 
 
 @router.message(F.text.in_(labels("btn_send")))
@@ -301,13 +348,17 @@ async def handle_reminder_minutes_input(message: Message, state: FSMContext, cur
 @router.message(F.text.in_(labels("btn_profile")))
 async def handle_profile(message: Message, current_user: User, session: AsyncSession):
     lang = lang_of(current_user)
+    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
     lines = [f"👤 <b>{esc(current_user.first_name)}</b>\n"]
 
     if current_user.group_id:
         group = await UniversityService.get_group_by_id(session, current_user.group_id)
         university = await UniversityService.get_university_by_id(session, current_user.university_id)
+        faculty = await session.get(Faculty, current_user.faculty_id) if current_user.faculty_id else None
         if university:
-            lines.append(f"🏛 {esc(university.name)}")
+            lines.append(t(lang, "profile_university", name=esc(university.name)))
+        if faculty:
+            lines.append(t(lang, "profile_faculty", name=esc(faculty.name)))
         if group:
             lines.append(t(lang, "profile_group", group=esc(group.name)))
         schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
@@ -317,9 +368,21 @@ async def handle_profile(message: Message, current_user: User, session: AsyncSes
 
     setting = await ScheduleService.get_or_create_reminder_setting(session, current_user.id)
     lines.append(t(lang, "profile_reminder", time=format_minutes(setting.minutes_before, lang)))
-    lines.append(t(lang, "profile_change"))
+    lines.append(t(lang, "profile_lang"))
 
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=profile_keyboard(lang))
+
+
+@router.callback_query(F.data == "profile_group")
+async def handle_profile_change_group(query: CallbackQuery, state: FSMContext, current_user: User, session: AsyncSession):
+    await query.answer()
+    await start_registration(query.message, state, session, lang_of(current_user))
+
+
+@router.callback_query(F.data == "profile_lang")
+async def handle_profile_change_language(query: CallbackQuery, current_user: User):
+    await query.answer()
+    await query.message.answer(t(lang_of(current_user), "choose_language"), reply_markup=language_keyboard())
 
 
 @router.message(Command("register"))

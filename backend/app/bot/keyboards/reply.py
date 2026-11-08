@@ -9,10 +9,10 @@ def _button(lang: str, key: str) -> KeyboardButton:
 def get_user_main_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     """Talabalar uchun asosiy menyu"""
     keyboard = [
-        [_button(lang, "btn_today"), _button(lang, "btn_tomorrow")],
         [_button(lang, "btn_week")],
-        [_button(lang, "btn_reminder"), _button(lang, "btn_send")],
-        [_button(lang, "btn_profile"), _button(lang, "btn_language")],
+        [_button(lang, "btn_today"), _button(lang, "btn_tomorrow")],
+        [_button(lang, "btn_reminder"), _button(lang, "btn_profile")],
+        [_button(lang, "btn_contact")],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 

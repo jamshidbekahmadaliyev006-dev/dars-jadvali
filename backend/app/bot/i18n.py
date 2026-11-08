@@ -53,12 +53,13 @@ STATUS_LABELS: Dict[str, Dict[SubmissionStatus, str]] = {
 
 TEXTS: Dict[str, Dict[str, str]] = {
     # Menyu tugmalari
-    "btn_today": {"uz": "📖 Bugungi darslar", "ru": "📖 Занятия сегодня"},
-    "btn_tomorrow": {"uz": "📆 Ertangi darslar", "ru": "📆 Занятия завтра"},
-    "btn_week": {"uz": "🗓 Umumiy jadval", "ru": "🗓 Всё расписание"},
-    "btn_reminder": {"uz": "⏰ Eslatma sozlamalari", "ru": "⏰ Напоминания"},
+    "btn_week": {"uz": "📅 Dars jadvali", "ru": "📅 Расписание"},
+    "btn_today": {"uz": "📖 Bugun", "ru": "📖 Сегодня"},
+    "btn_tomorrow": {"uz": "📆 Ertaga", "ru": "📆 Завтра"},
+    "btn_reminder": {"uz": "⏰ Eslatma", "ru": "⏰ Напоминание"},
+    "btn_profile": {"uz": "👤 Profil", "ru": "👤 Профиль"},
+    "btn_contact": {"uz": "✉️ Murojaat", "ru": "✉️ Обращение"},
     "btn_send": {"uz": "📤 Jadval yuborish", "ru": "📤 Отправить расписание"},
-    "btn_profile": {"uz": "👤 Profilim", "ru": "👤 Профиль"},
     "btn_language": {"uz": "🌐 Til", "ru": "🌐 Язык"},
     "btn_status": {"uz": "📊 Jadval holati", "ru": "📊 Статус расписания"},
     "btn_new_shots": {"uz": "📥 Yangi screenshotlar", "ru": "📥 Новые расписания"},
@@ -73,10 +74,48 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "btn_reject": {"uz": "❌ Rad etish", "ru": "❌ Отклонить"},
     "btn_send_now": {"uz": "✅ Yuborish", "ru": "✅ Отправить"},
     "btn_cancel": {"uz": "❌ Bekor qilish", "ru": "❌ Отмена"},
-    "btn_10": {"uz": "10 daqiqa", "ru": "10 минут"},
     "btn_15": {"uz": "15 daqiqa", "ru": "15 минут"},
     "btn_30": {"uz": "Yarim soat", "ru": "Полчаса"},
+    "btn_45": {"uz": "45 daqiqa", "ru": "45 минут"},
     "btn_60": {"uz": "1 soat", "ru": "1 час"},
+    "btn_change_group": {"uz": "🔄 Guruhni o'zgartirish", "ru": "🔄 Сменить группу"},
+    "btn_change_language": {"uz": "🌐 Tilni o'zgartirish", "ru": "🌐 Сменить язык"},
+    "btn_week_all": {"uz": "🗓 Hafta", "ru": "🗓 Неделя"},
+    "btn_reply": {"uz": "↩️ Javob berish", "ru": "↩️ Ответить"},
+    # Murojaat
+    "contact_prompt": {
+        "uz": "✉️ <b>Murojaat</b>\n\nSavol, taklif yoki muammoingizni yozing — u adminga yuboriladi.",
+        "ru": "✉️ <b>Обращение</b>\n\nНапишите вопрос, предложение или проблему — оно уйдёт администратору.",
+    },
+    "contact_sent": {
+        "uz": "✅ Murojaatingiz adminga yuborildi. Javob shu yerga keladi.",
+        "ru": "✅ Обращение отправлено администратору. Ответ придёт сюда.",
+    },
+    "contact_cancelled": {
+        "uz": "↩️ Murojaat bekor qilindi. Kerakli tugmani qayta bosing.",
+        "ru": "↩️ Обращение отменено. Нажмите нужную кнопку ещё раз.",
+    },
+    "contact_no_admin": {
+        "uz": "⚠️ Hozircha admin ulanmagan. Keyinroq urinib ko'ring.",
+        "ru": "⚠️ Администратор пока не подключён. Попробуйте позже.",
+    },
+    "contact_new": {
+        "uz": "✉️ <b>Yangi murojaat</b>\n\n👤 {who}\n\n{text}",
+        "ru": "✉️ <b>Новое обращение</b>\n\n👤 {who}\n\n{text}",
+    },
+    "contact_reply_prompt": {
+        "uz": "↩️ {who} uchun javob matnini yozing:",
+        "ru": "↩️ Напишите ответ для {who}:",
+    },
+    "contact_reply_sent": {"uz": "✅ Javob yuborildi.", "ru": "✅ Ответ отправлен."},
+    "contact_reply_failed": {"uz": "❗ Javobni yetkazib bo'lmadi.", "ru": "❗ Не удалось доставить ответ."},
+    "contact_from_admin": {
+        "uz": "💬 <b>Admin javobi</b>\n\n{text}",
+        "ru": "💬 <b>Ответ администратора</b>\n\n{text}",
+    },
+    "profile_university": {"uz": "🏛 Universitet: {name}", "ru": "🏛 Университет: {name}"},
+    "profile_faculty": {"uz": "🎓 Fakultet: {name}", "ru": "🎓 Факультет: {name}"},
+    "profile_lang": {"uz": "🌐 Til: O'zbekcha", "ru": "🌐 Язык: Русский"},
     # Kirish va til
     "choose_language": {"uz": "🌐 Tilni tanlang\nВыберите язык", "ru": "🌐 Tilni tanlang\nВыберите язык"},
     "language_saved": {"uz": "✅ Til: O'zbekcha", "ru": "✅ Язык: Русский"},
@@ -161,7 +200,7 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "profile_no_group": {"uz": "👥 Guruh tanlanmagan", "ru": "👥 Группа не выбрана"},
     "profile_no_schedule": {"uz": "📚 Jadval hali yo'q", "ru": "📚 Расписания пока нет"},
     "profile_reminder": {"uz": "⏰ Eslatma: darsdan {time} oldin", "ru": "⏰ Напоминание: за {time} до занятия"},
-    "profile_change": {"uz": "\nGuruhni o'zgartirish: /register", "ru": "\nСменить группу: /register"},
+    "profile_change": {"uz": "", "ru": ""},
     # Admin
     "admin_only": {
         "uz": "⚠️ Bu bo'lim faqat tizim administratorlari uchun.",
@@ -246,7 +285,17 @@ def t(lang: str, key: str, **kwargs: Any) -> str:
 
 def labels(key: str) -> Set[str]:
     """Tugma ikkala tilda ham bir handlerga tushishi uchun barcha yozuvlari"""
-    return set(TEXTS[key].values())
+    return set(TEXTS[key].values()) | LEGACY_LABELS.get(key, set())
+
+
+# Eski menyu yozuvlari: foydalanuvchida eski klaviatura qolgan bo'lsa ham tugma ishlashi uchun
+LEGACY_LABELS: Dict[str, Set[str]] = {
+    "btn_today": {"📖 Bugungi darslar", "📖 Занятия сегодня"},
+    "btn_tomorrow": {"📆 Ertangi darslar", "📆 Занятия завтра"},
+    "btn_week": {"🗓 Umumiy jadval", "🗓 Всё расписание"},
+    "btn_reminder": {"⏰ Eslatma sozlamalari", "⏰ Напоминания"},
+    "btn_profile": {"👤 Profilim"},
+}
 
 
 def _ru_plural(n: int, one: str, few: str, many: str) -> str:

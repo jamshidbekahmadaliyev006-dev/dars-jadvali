@@ -13,6 +13,12 @@ class ReminderStates(StatesGroup):
     waiting_minutes = State()
 
 
+class ContactStates(StatesGroup):
+    """Talaba adminga murojaat yozishi va admin javob yozishi"""
+    waiting_message = State()
+    waiting_admin_reply = State()
+
+
 class AnnouncementStates(StatesGroup):
     """Admin e'lon matnini yozish oqimi"""
     waiting_text = State()
