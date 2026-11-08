@@ -1,0 +1,42 @@
+# Serverdagi ishga tushirish (Oracle). Boshqa loyihalarga xalaqit bermaydi:
+# - alohida compose loyiha nomi (uninotify)
+# - tashqariga hech qanday port ochilmaydi (bot Telegram'dan o'zi so'raydi - long polling)
+# - API faqat server ichidan: 127.0.0.1:8010
+# - ma'lumotlar bazasi ./data/uninotify.db (SQLite) da saqlanadi
+#
+# Ishga tushirish:  docker compose -p uninotify -f deploy/docker-compose.server.yml up -d --build
+name: uninotify
+
+services:
+  bot:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    image: uninotify-bot:latest
+    container_name: uninotify-bot
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:////app/data/uninotify.db
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - ../data:/app/data
+    ports:
+      - "127.0.0.1:8010:8000"
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Eski bot (@dasrli_bot) ga yozganlarni yangi botga yo'naltiradi
+  old-bot-redirect:
+    image: uninotify-bot:latest
+    container_name: uninotify-old-bot-redirect
+    restart: unless-stopped
+    depends_on: [bot]
+    env_file: ../.env  # OLD_BOT_TOKEN va NEW_BOT_USERNAME shu yerdan
+    command: ["python", "-u", "scripts/old_bot_redirect.py"]
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }
