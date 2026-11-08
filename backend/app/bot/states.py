@@ -6,6 +6,7 @@ class RegistrationStates(StatesGroup):
     waiting_university = State()
     waiting_faculty = State()
     waiting_group = State()
+    waiting_schedule = State()  # guruh jadvali yo'q: rasm yoki matn kutilmoqda
 
 
 class ReminderStates(StatesGroup):

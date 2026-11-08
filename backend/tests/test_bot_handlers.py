@@ -289,7 +289,38 @@ async def test_choosing_russian_saves_it_and_continues_in_russian(db_session: As
     assert user.language_chosen is True
     texts = [call.args[0] for call in query.message.answer.call_args_list]
     assert "Привет" in texts[0]
-    assert "Ваш университет" in texts[1]
+    assert "название университета" in texts[1]
+
+
+@pytest.mark.parametrize("typed", ["712-24", "712_24", "712 24", "712/24", " 712-24 guruh", "712.24"])
+def test_group_names_written_differently_are_the_same_group(typed):
+    from app.services.university_service import group_key, pretty_group_name
+
+    assert group_key(typed) == group_key("712-24")
+    assert pretty_group_name(typed) == "712-24"
+
+
+async def test_university_matches_abbreviation_and_typos(db_session: AsyncSession):
+    from app.models.university import University
+    from app.services.university_service import UniversityService
+
+    tatu = University(name="Toshkent Axborot Texnologiyalari Universiteti")
+    db_session.add(tatu)
+    await db_session.commit()
+
+    for typed in ["TATU", "tatu", "Toshkent axborot texnologiyalar univesiteti"]:
+        found = await UniversityService.match_university(db_session, typed)
+        assert found is not None and found.id == tatu.id, typed
+    assert await UniversityService.match_university(db_session, "Samarqand davlat universiteti") is None
+
+
+async def test_registration_asks_only_university_and_group_and_reuses_group(db_session: AsyncSession):
+    from app.services.university_service import UniversityService
+
+    u1, g1 = await UniversityService.register_university_and_group(db_session, "TATU", "712_24")
+    u2, g2 = await UniversityService.register_university_and_group(db_session, "tatu", "712-24")
+    assert (u1.id, g1.id) == (u2.id, g2.id)
+    assert g1.name == "712-24"
 
 
 def test_every_text_exists_in_both_languages():

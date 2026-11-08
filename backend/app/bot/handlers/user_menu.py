@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta
 import json
-from typing import List
+from typing import List, Optional
 import pytz
 from aiogram import F, Router
-from aiogram.enums import ChatAction
+
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -21,6 +21,7 @@ from app.bot.keyboards.inline import (
 )
 from app.bot.states import ReminderStates
 from app.bot.text_utils import (
+    show_typing,
     esc,
     format_day_schedule,
     format_weekly_schedule,
@@ -42,7 +43,7 @@ from app.services.schedule_service import (
     normalize_subject_name,
     week_parity_for,
 )
-from app.services.university_service import UniversityService
+from app.services.university_service import GENERAL_FACULTY_NAME, UniversityService
 from app.services.user_service import UserService
 
 router = Router(name="user_menu")
@@ -104,7 +105,7 @@ async def handle_full_schedule(message: Message, current_user: User, session: As
         await message.answer(t(lang, "no_schedule"))
         return
 
-    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    await show_typing(message)
     await message.answer(
         format_weekly_schedule(schedules, lang),
         parse_mode="HTML",
@@ -178,14 +179,16 @@ async def _notify_admins(
             lines.append(t(admin_lang, result_key))
         if lesson_count:
             lines.append(f"📚 {format_counts(subject_count, lesson_count, admin_lang)}")
+        markup = admin_review_keyboard(submission_id, admin_lang) if needs_review else None
         try:
-            await message.bot.send_photo(
-                chat_id=admin_id,
-                photo=file_id,
-                caption="\n".join(lines),
-                parse_mode="HTML",
-                reply_markup=admin_review_keyboard(submission_id, admin_lang) if needs_review else None,
-            )
+            if file_id and file_id != "text":
+                await message.bot.send_photo(
+                    chat_id=admin_id, photo=file_id, caption="\n".join(lines), parse_mode="HTML", reply_markup=markup,
+                )
+            else:
+                # Jadval matn ko'rinishida yozilgan - rasm o'rniga matnning o'zi
+                lines += ["", f"<pre>{esc((message.text or '')[:3000])}</pre>"]
+                await message.bot.send_message(admin_id, "\n".join(lines), parse_mode="HTML", reply_markup=markup)
         except Exception as e:
             logger.error(f"Failed to forward schedule photo to admin {admin_id}: {e}")
 
@@ -198,28 +201,43 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
         await start_registration(message, state, session, lang)
         return
 
-    file_id = message.photo[-1].file_id  # eng yuqori sifatlisi
+    await state.clear()
+    await process_schedule_input(message, current_user, session, file_id=message.photo[-1].file_id)
 
+
+async def process_schedule_input(
+    message: Message,
+    current_user: User,
+    session: AsyncSession,
+    file_id: Optional[str] = None,
+    schedule_text: Optional[str] = None,
+) -> None:
+    """Jadval rasmi (file_id) yoki qo'lda yozilgan jadval matnini AI orqali o'qib saqlaydi"""
+    lang = lang_of(current_user)
     payload = ScheduleSubmissionCreate(
         university_id=current_user.university_id,
         faculty_id=current_user.faculty_id,
         group_id=current_user.group_id,
-        image_file_id=file_id,
-        image_url=f"tg://file/{file_id}",
+        image_file_id=file_id or "text",
+        image_url=f"tg://file/{file_id}" if file_id else f"text:{(schedule_text or '')[:480]}",
     )
     submission = await ScheduleService.create_submission(session, current_user.id, payload)
 
     loading_msg = await message.answer(t(lang, "reading"))
+    await show_typing(message)
 
     try:
-        file_info = await message.bot.get_file(file_id)
-        file_io = await message.bot.download_file(file_info.file_path)
+        image_bytes = b""
+        if file_id:
+            file_info = await message.bot.get_file(file_id)
+            image_bytes = (await message.bot.download_file(file_info.file_path)).read()
 
         processed = await AIService.process_schedule_submission(
             session=session,
             submission_id=submission.id,
-            image_bytes=file_io.read(),
+            image_bytes=image_bytes,
             filename=f"tg_{file_id}.jpg",
+            text=schedule_text,
         )
 
         lessons: List[dict] = []
@@ -278,7 +296,7 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
             subject_count=subject_count, lesson_count=len(lessons),
         )
     except Exception as e:
-        logger.error(f"Error processing bot photo submission: {e}")
+        logger.error(f"Error processing schedule submission: {e}")
         await loading_msg.edit_text(t(lang, "upload_error"), parse_mode="HTML")
 
 
@@ -348,7 +366,7 @@ async def handle_reminder_minutes_input(message: Message, state: FSMContext, cur
 @router.message(F.text.in_(labels("btn_profile")))
 async def handle_profile(message: Message, current_user: User, session: AsyncSession):
     lang = lang_of(current_user)
-    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    await show_typing(message)
     lines = [f"👤 <b>{esc(current_user.first_name)}</b>\n"]
 
     if current_user.group_id:
@@ -357,7 +375,7 @@ async def handle_profile(message: Message, current_user: User, session: AsyncSes
         faculty = await session.get(Faculty, current_user.faculty_id) if current_user.faculty_id else None
         if university:
             lines.append(t(lang, "profile_university", name=esc(university.name)))
-        if faculty:
+        if faculty and faculty.name != GENERAL_FACULTY_NAME:
             lines.append(t(lang, "profile_faculty", name=esc(faculty.name)))
         if group:
             lines.append(t(lang, "profile_group", group=esc(group.name)))

@@ -1,12 +1,12 @@
 from aiogram import F, Router
-from aiogram.enums import ChatAction
+
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.i18n import TEXTS, labels, lang_of, t
 from app.bot.keyboards.inline import contact_reply_keyboard
 from app.bot.states import ContactStates
-from app.bot.text_utils import esc
+from app.bot.text_utils import esc, show_typing
 from app.core.config import settings
 from app.core.logging import logger
 from app.models.enums import UserRole
@@ -31,7 +31,7 @@ async def handle_contact_start(message: Message, state: FSMContext, current_user
     """Murojaat: talaba matn yozishni boshlaydi"""
     lang = lang_of(current_user)
     await state.set_state(ContactStates.waiting_message)
-    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    await show_typing(message)
     await message.answer(t(lang, "contact_prompt"), parse_mode="HTML")
 
 
@@ -54,7 +54,7 @@ async def handle_contact_message(message: Message, state: FSMContext, current_us
     username = f" (@{esc(current_user.username)})" if current_user.username else ""
     who = f"{esc(current_user.first_name)}{username}"
     delivered = 0
-    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    await show_typing(message)
     for admin_id in settings.admin_id_list:
         admin_lang = lang_of(await UserService.get_by_telegram_id(session, admin_id))
         try:

@@ -1,9 +1,10 @@
-from typing import List, Optional
+from typing import Optional
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from aiogram.types import Message, ReplyKeyboardRemove
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.bot.i18n import DEFAULT_LANG, lang_of, t
+from app.bot.i18n import DEFAULT_LANG, TEXTS, labels, lang_of, t
+from app.bot.keyboards.inline import week_days_keyboard
 from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
 from app.bot.states import RegistrationStates
 from app.bot.text_utils import esc, format_weekly_schedule
@@ -15,17 +16,17 @@ from app.services.university_service import UniversityService
 router = Router(name="registration")
 
 
+def _menu_labels() -> set:
+    result = set()
+    for key in TEXTS:
+        if key.startswith("btn_"):
+            result |= labels(key)
+    return result
+
+
 def _is_valid_name(name: str, min_length: int = 2) -> bool:
     # Menyu tugmasi yoki buyruq nom bo'lib saqlanib qolmasin
-    return len(name) >= min_length and name[0].isalnum()
-
-
-def _options_keyboard(names: List[str]):
-    """Bazadagi nomlarni tugma qiladi: guruhdoshlar bir xil tanlab, tayyor jadvalga tushadi"""
-    if not names:
-        return ReplyKeyboardRemove()
-    rows = [[KeyboardButton(text=name)] for name in names[:30]]
-    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=True)
+    return len(name) >= min_length and name[0].isalnum() and name not in _menu_labels()
 
 
 async def start_registration(
@@ -34,65 +35,29 @@ async def start_registration(
     session: Optional[AsyncSession] = None,
     lang: str = DEFAULT_LANG,
 ) -> None:
-    """Talabani universitet -> fakultet -> guruh bosqichlari orqali ro'yxatdan o'tkazishni boshlaydi"""
-    universities = await UniversityService.get_all_universities(session) if session else []
+    """
+    Ro'yxatdan o'tish: faqat universitet va guruh so'raladi, ikkalasi ham qo'lda yoziladi.
+    Bazadagi nomlar tugma qilib ko'rsatilmaydi - talabalar adashib boshqa guruhni bosib yubormasin.
+    """
     await state.set_state(RegistrationStates.waiting_university)
-    await message.answer(
-        t(lang, "ask_university"),
-        parse_mode="HTML",
-        reply_markup=_options_keyboard([u.name for u in universities]),
-    )
+    await message.answer(t(lang, "ask_university"), parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(RegistrationStates.waiting_university, F.text)
-async def process_university(message: Message, state: FSMContext, current_user: User, session: AsyncSession) -> None:
+async def process_university(message: Message, state: FSMContext, current_user: User) -> None:
     lang = lang_of(current_user)
     name = (message.text or "").strip()
     if not _is_valid_name(name):
         await message.answer(t(lang, "bad_university"))
         return
 
-    univ = await UniversityService.find_university_by_name(session, name)
-    faculties = await UniversityService.get_faculties_by_university(session, univ.id) if univ else []
-
     await state.update_data(university_name=name)
-    await state.set_state(RegistrationStates.waiting_faculty)
-    await message.answer(
-        t(lang, "ask_faculty"),
-        parse_mode="HTML",
-        reply_markup=_options_keyboard([f.name for f in faculties]),
-    )
-
-
-@router.message(RegistrationStates.waiting_faculty, F.text)
-async def process_faculty(message: Message, state: FSMContext, current_user: User, session: AsyncSession) -> None:
-    lang = lang_of(current_user)
-    name = (message.text or "").strip()
-    if not _is_valid_name(name):
-        await message.answer(t(lang, "bad_faculty"))
-        return
-
-    data = await state.get_data()
-    univ = await UniversityService.find_university_by_name(session, data.get("university_name", ""))
-    faculty = await UniversityService.find_faculty_by_name(session, univ.id, name) if univ else None
-    groups = await UniversityService.get_groups(session, univ.id, faculty.id) if faculty else []
-
-    await state.update_data(faculty_name=name)
     await state.set_state(RegistrationStates.waiting_group)
-    await message.answer(
-        t(lang, "ask_group"),
-        parse_mode="HTML",
-        reply_markup=_options_keyboard([g.name for g in groups]),
-    )
+    await message.answer(t(lang, "ask_group"), parse_mode="HTML")
 
 
 @router.message(RegistrationStates.waiting_group, F.text)
-async def process_group(
-    message: Message,
-    state: FSMContext,
-    current_user: User,
-    session: AsyncSession,
-) -> None:
+async def process_group(message: Message, state: FSMContext, current_user: User, session: AsyncSession) -> None:
     lang = lang_of(current_user)
     name = (message.text or "").strip()
     if not _is_valid_name(name, min_length=1):
@@ -100,29 +65,44 @@ async def process_group(
         return
 
     data = await state.get_data()
-    university_name = data.get("university_name", "")
-    faculty_name = data.get("faculty_name", "")
-
-    univ = await UniversityService.get_or_create_university_by_name(session, university_name)
-    faculty = await UniversityService.get_or_create_faculty_by_name(session, univ.id, faculty_name)
-    group = await UniversityService.get_or_create_group_by_name(session, univ.id, faculty.id, name)
+    univ, group = await UniversityService.register_university_and_group(
+        session, data.get("university_name", ""), name
+    )
 
     current_user.university_id = univ.id
-    current_user.faculty_id = faculty.id
+    current_user.faculty_id = group.faculty_id
     current_user.group_id = group.id
     await session.commit()
-
     await state.clear()
 
     is_admin = current_user.role == UserRole.ADMIN
     kb = get_admin_main_keyboard(lang) if is_admin else get_user_main_keyboard(lang)
-    profile_text = f"{t(lang, 'registered')}\n\n🏛 {esc(univ.name)}\n🏢 {esc(faculty.name)}\n👥 {esc(group.name)}\n\n"
+    profile_text = f"{t(lang, 'registered')}\n\n🏛 {esc(univ.name)}\n👥 {esc(group.name)}\n\n"
 
-    # Guruhdoshi jadvalni allaqachon kiritgan bo'lsa, rasm so'ramasdan darhol ishga tushadi
+    # Guruh jadvali bazada bo'lsa - darhol ko'rsatiladi, rasm so'ralmaydi
     schedules = await ScheduleService.get_schedules(session, group_id=group.id)
     if schedules:
         await message.answer(f"{profile_text}{t(lang, 'group_ready')}", parse_mode="HTML", reply_markup=kb)
-        await message.answer(format_weekly_schedule(schedules, lang), parse_mode="HTML")
+        await message.answer(
+            format_weekly_schedule(schedules, lang), parse_mode="HTML", reply_markup=week_days_keyboard(lang)
+        )
         return
 
+    # Jadval yo'q - rasm yoki matn ko'rinishida so'raladi
+    await state.set_state(RegistrationStates.waiting_schedule)
     await message.answer(f"{profile_text}{t(lang, 'send_photo_now')}", parse_mode="HTML", reply_markup=kb)
+
+
+def _is_schedule_text(message: Message) -> bool:
+    # Menyu tugmalari va buyruqlar jadval matni emas - ular o'z handlerlariga o'tadi
+    text = (message.text or "").strip()
+    return bool(text) and not text.startswith("/") and text not in _menu_labels()
+
+
+@router.message(RegistrationStates.waiting_schedule, F.text, _is_schedule_text)
+async def process_schedule_text(message: Message, state: FSMContext, current_user: User, session: AsyncSession) -> None:
+    """Talaba jadvalni yozib yubordi: AI matndan darslarni ajratib oladi"""
+    text = (message.text or "").strip()
+    await state.clear()
+    from app.bot.handlers.user_menu import process_schedule_input
+    await process_schedule_input(message, current_user, session, schedule_text=text)

@@ -129,16 +129,16 @@ TEXTS: Dict[str, Dict[str, str]] = {
     },
     # Ro'yxatdan o'tish
     "ask_university": {
-        "uz": "🏛 <b>Universitetingiz?</b>\n\nTanlang yoki nomini yozing:",
-        "ru": "🏛 <b>Ваш университет?</b>\n\nВыберите или напишите название:",
+        "uz": "🏛 <b>Universitetingiz nomini yozing</b>\n\nMasalan: TATU",
+        "ru": "🏛 <b>Напишите название университета</b>\n\nНапример: ТУИТ",
     },
     "ask_faculty": {
         "uz": "🏢 <b>Fakultetingiz?</b>\n\nTanlang yoki nomini yozing:",
         "ru": "🏢 <b>Ваш факультет?</b>\n\nВыберите или напишите название:",
     },
     "ask_group": {
-        "uz": "👥 <b>Guruhingiz?</b>\n\nTanlang yoki nomini yozing:",
-        "ru": "👥 <b>Ваша группа?</b>\n\nВыберите или напишите название:",
+        "uz": "👥 <b>Guruhingizni yozing</b>\n\nMasalan: 712-24",
+        "ru": "👥 <b>Напишите вашу группу</b>\n\nНапример: 712-24",
     },
     "bad_university": {"uz": "❗ Universitet nomini yozing.", "ru": "❗ Напишите название университета."},
     "bad_faculty": {"uz": "❗ Fakultet nomini yozing.", "ru": "❗ Напишите название факультета."},
@@ -148,7 +148,14 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "uz": "Guruhingiz jadvali tayyor, rasm yuborish shart emas. Eslatmalar yoqildi.",
         "ru": "Расписание вашей группы уже есть, фото отправлять не нужно. Напоминания включены.",
     },
-    "send_photo_now": {"uz": "📸 Endi dars jadvali rasmini yuboring.", "ru": "📸 Теперь отправьте фото расписания."},
+    "send_photo_now": {
+        "uz": "Guruhingiz jadvali hali bazada yo'q.\n\n📸 Dars jadvali <b>rasmini</b> yuboring\n"
+              "yoki ✍️ jadvalni <b>yozib</b> yuboring, masalan:\n\n"
+              "<code>Dushanba 08:00-09:30 Matematika A-327\nDushanba 09:30-11:00 Fizika A-210</code>",
+        "ru": "Расписания вашей группы пока нет в базе.\n\n📸 Отправьте <b>фото</b> расписания\n"
+              "или ✍️ <b>напишите</b> его текстом, например:\n\n"
+              "<code>Понедельник 08:00-09:30 Математика A-327\nПонедельник 09:30-11:00 Физика A-210</code>",
+    },
     # Jadval
     "today_title": {"uz": "Bugun, {day}", "ru": "Сегодня, {day}"},
     "tomorrow_title": {"uz": "Ertaga, {day}", "ru": "Завтра, {day}"},
@@ -166,8 +173,8 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "ru": "⏳ Распознаю расписание, подождите несколько секунд...",
     },
     "read_failed": {
-        "uz": "⚠️ <b>Jadvalni o'qib bo'lmadi</b>\n\nHech narsa saqlanmadi. Aniqroq rasm yuboring yoki birozdan so'ng qayta urinib ko'ring.",
-        "ru": "⚠️ <b>Не удалось распознать расписание</b>\n\nНичего не сохранено. Отправьте более чёткое фото или попробуйте позже.",
+        "uz": "⚠️ <b>Jadvalni o'qib bo'lmadi</b>\n\nHech narsa saqlanmadi. Aniqroq rasm yuboring yoki jadvalni yozib yuboring (kun, vaqt, fan).",
+        "ru": "⚠️ <b>Не удалось распознать расписание</b>\n\nНичего не сохранено. Отправьте более чёткое фото или напишите расписание текстом (день, время, предмет).",
     },
     "sent_to_review": {
         "uz": "🔍 <b>Admin tekshiruviga yuborildi</b>\n\n{summary}\n\nGuruhingiz jadvali allaqachon bor. Admin tasdiqlasa, yangisi bilan almashtiriladi.",

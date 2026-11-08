@@ -16,6 +16,10 @@ class BaseAIProvider(ABC):
         """Dars jadvali screenshotidan darslarni strukturali JSON ko'rinishida ajratib olish"""
         pass
 
+    async def extract_schedule_from_text(self, text: str) -> ExtractedScheduleResult:
+        """Talaba qo'lda yozgan jadval matnidan darslarni ajratib olish"""
+        raise RuntimeError("Bu AI provayderi jadval matnini o'qiy olmaydi")
+
     @abstractmethod
     async def chat_student_assistant(self, query: str, context: Dict[str, Any]) -> str:
         """Talabaga darslar, vazifalar va rejalar bo'yicha yordam beruvchi AI assistant"""
@@ -27,6 +31,9 @@ class MockAIProvider(BaseAIProvider):
     Offline va test rejimida yoki API key bo'lmaganda ishlovchi Mock provayder.
     Tizimni to'xtatib qo'ymasdan realistik ma'lumotlar bilan ta'minlaydi.
     """
+
+    async def extract_schedule_from_text(self, text: str) -> ExtractedScheduleResult:
+        return await self.extract_schedule_from_image(b"")
 
     async def extract_schedule_from_image(self, image_bytes: bytes, filename: str = "schedule.jpg") -> ExtractedScheduleResult:
         logger.info("MockAIProvider: Simulating schedule extraction from image.")
@@ -148,6 +155,28 @@ class GeminiAIProvider(BaseAIProvider):
         # Kalit URL'da emas, sarlavhada: URL'lar loglarga yoziladi
         return {"x-goog-api-key": self.api_key}
 
+    JSON_FORMAT = (
+        "Faqat JSON massiv qaytaring, har bir element kalitlari: "
+        "day (Dushanba, Seshanba, Chorshanba, Payshanba, Juma, Shanba, Yakshanba), subject, "
+        "teacher (yo'q bo'lsa null), start_time (HH:MM), end_time (HH:MM), building (yo'q bo'lsa null), "
+        "room (yo'q bo'lsa null), lesson_type (LECTURE, PRACTICE, LAB, SEMINAR yoki OTHER), "
+        "week_parity (toq hafta=ODD, juft hafta=EVEN, belgi bo'lmasa=ALL)."
+    )
+
+    async def extract_schedule_from_text(self, text: str) -> ExtractedScheduleResult:
+        prompt = (
+            "Talaba o'z haftalik dars jadvalini matn ko'rinishida yozdi (o'zbek yoki rus tilida, "
+            "qisqartmalar bilan bo'lishi mumkin: Du/Dush=Dushanba, Se/Sesh=Seshanba, Pn=Dushanba va h.k.). "
+            "Har bir darsni ajrating. Vaqt 8.00, 8:00 yoki 800 kabi yozilishi mumkin - HH:MM ga keltiring. "
+            "Tugash vaqti yozilmagan bo'lsa, boshlanishiga 80 daqiqa qo'shing. "
+            "Fan nomlarini talaba yozganidek qoldiring. Xonani harflari va belgilari bilan aynan ko'chiring "
+            "(masalan 'A-327' bo'lsa 'A-327', '327' emas). Hech narsa to'qimang. Matnda jadval bo'lmasa, [] qaytaring. "
+            + self.JSON_FORMAT
+            + "\n\nMatn:\n"
+            + text[:4000]
+        )
+        return await self._extract({"contents": [{"parts": [{"text": prompt}]}]})
+
     async def extract_schedule_from_image(self, image_bytes: bytes, filename: str = "schedule.jpg") -> ExtractedScheduleResult:
         base64_data = base64.b64encode(image_bytes).decode("utf-8")
         mime_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
@@ -158,11 +187,7 @@ class GeminiAIProvider(BaseAIProvider):
             "blok balandligi va vaqt o'qidan aniqlang. Bir vaqtda ikkita dars bo'lsa, ikkalasini ham yozing. "
             "Fan nomi va xonani rasmda qanday yozilgan bo'lsa, aynan shunday ko'chiring. "
             "Faqat rasmda ko'ringan narsani yozing, hech narsa to'qimang. Rasm dars jadvali bo'lmasa, [] qaytaring. "
-            "Faqat JSON massiv qaytaring, har bir element kalitlari: "
-            "day (Dushanba, Seshanba, Chorshanba, Payshanba, Juma, Shanba, Yakshanba), subject, "
-            "teacher (yo'q bo'lsa null), start_time (HH:MM), end_time (HH:MM), building (yo'q bo'lsa null), "
-            "room (yo'q bo'lsa null), lesson_type (LECTURE, PRACTICE, LAB, SEMINAR yoki OTHER), "
-            "week_parity (toq hafta=ODD, juft hafta=EVEN, belgi bo'lmasa=ALL)."
+            + self.JSON_FORMAT
         )
 
         payload = {
@@ -174,6 +199,12 @@ class GeminiAIProvider(BaseAIProvider):
                     ]
                 }
             ],
+        }
+        return await self._extract(payload)
+
+    async def _extract(self, payload: Dict[str, Any]) -> ExtractedScheduleResult:
+        payload = {
+            **payload,
             "generationConfig": {
                 "response_mime_type": "application/json",
                 "temperature": 0.1,
@@ -269,6 +300,11 @@ class GroqAIProvider(BaseAIProvider):
         if self.vision_provider:
             return await self.vision_provider.extract_schedule_from_image(image_bytes, filename)
         raise RuntimeError("Rasm o'qish uchun GEMINI_API_KEY kerak: Groq hisobida vision model yo'q")
+
+    async def extract_schedule_from_text(self, text: str) -> ExtractedScheduleResult:
+        if self.vision_provider:
+            return await self.vision_provider.extract_schedule_from_text(text)
+        raise RuntimeError("Jadval matnini o'qish uchun GEMINI_API_KEY kerak")
 
     async def chat_student_assistant(self, query: str, context: Dict[str, Any]) -> str:
         system_instruction = (

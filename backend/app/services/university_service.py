@@ -1,3 +1,5 @@
+from difflib import SequenceMatcher
+import re
 from typing import List, Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +13,35 @@ from app.schemas.university import (
     TeacherCreate, TeacherUpdate,
     UniversityCreate, UniversityUpdate,
 )
+
+# Ro'yxatdan o'tishda fakultet so'ralmaydi: yangi guruhlar shu umumiy fakultetga yoziladi
+GENERAL_FACULTY_NAME = "Umumiy"
+
+_GROUP_NOISE_WORDS = re.compile(r"\b(guruh|guruhi|gr|group|группа|гр)\b", re.IGNORECASE)
+
+
+def name_key(value: str) -> str:
+    """Taqqoslash kaliti: katta-kichik harf, tire, pastki chiziq, bo'shliq va belgilar e'tiborsiz"""
+    value = (value or "").lower().replace("ʻ", "'").replace("ʼ", "'").replace("`", "'").replace("‘", "'")
+    return "".join(ch for ch in value if ch.isalnum())
+
+
+def group_key(value: str) -> str:
+    """712-24, 712_24, '712 24', '712-24 guruh' - hammasi bir xil kalit beradi"""
+    return name_key(_GROUP_NOISE_WORDS.sub(" ", value or ""))
+
+
+def acronym(value: str) -> str:
+    """'Toshkent Axborot Texnologiyalari Universiteti' -> 'tatu'"""
+    words = re.findall(r"\w+", (value or "").lower())
+    return "".join(w[0] for w in words) if len(words) >= 2 else ""
+
+
+def pretty_group_name(value: str) -> str:
+    """Yangi guruh nomini bir xil ko'rinishga keltiradi: '712_24' -> '712-24'"""
+    cleaned = _GROUP_NOISE_WORDS.sub(" ", value or "").strip()
+    cleaned = re.sub(r"[\s_./\\]+", "-", cleaned).strip("-")
+    return cleaned.upper() if cleaned else (value or "").strip()
 
 
 class UniversityService:
@@ -165,6 +196,66 @@ class UniversityService:
     async def find_faculty_by_name(session: AsyncSession, university_id: int, name: str) -> Optional[Faculty]:
         stmt = select(Faculty).where(Faculty.university_id == university_id, func.lower(Faculty.name) == name.strip().lower())
         return (await session.execute(stmt)).scalars().first()
+
+    @staticmethod
+    async def match_university(session: AsyncSession, name: str) -> Optional[University]:
+        """
+        Talaba yozgan nomni bazadagi universitetga moslaydi: harf/belgi farqlari e'tiborsiz,
+        'TATU' kabi qisqartma ham to'liq nomga tushadi. Qisqartma bir nechta universitetga
+        mos kelsa, adashib birlashtirmaslik uchun hech biri tanlanmaydi.
+        """
+        key = name_key(name)
+        if not key:
+            return None
+        universities = (await session.execute(select(University))).scalars().all()
+
+        for u in universities:
+            if key in (name_key(u.name), name_key(u.short_name or "")):
+                return u
+
+        # Kichik imlo xatolari: 'univesiteti' / 'texnologiyalar' kabi
+        close = [u for u in universities if SequenceMatcher(None, key, name_key(u.name)).ratio() >= 0.9]
+        if len(close) == 1:
+            return close[0]
+
+        typed_acronym = acronym(name)
+        candidates = [
+            u for u in universities
+            if (acronym(u.name) and acronym(u.name) == key)
+            or (typed_acronym and typed_acronym in (name_key(u.name), name_key(u.short_name or "")))
+        ]
+        return candidates[0] if len(candidates) == 1 else None
+
+    @staticmethod
+    async def match_group(session: AsyncSession, university_id: int, name: str) -> Optional[Group]:
+        key = group_key(name)
+        if not key:
+            return None
+        groups = (await session.execute(select(Group).where(Group.university_id == university_id))).scalars().all()
+        return next((g for g in groups if group_key(g.name) == key), None)
+
+    @staticmethod
+    async def register_university_and_group(session: AsyncSession, university_name: str, group_name: str):
+        """Faqat universitet va guruh nomi bilan topadi yoki yaratadi (fakultet so'ralmaydi)"""
+        univ = await UniversityService.match_university(session, university_name)
+        if not univ:
+            univ = University(name=university_name.strip())
+            session.add(univ)
+            await session.flush()
+
+        group = await UniversityService.match_group(session, univ.id, group_name)
+        if not group:
+            faculty = await UniversityService.find_faculty_by_name(session, univ.id, GENERAL_FACULTY_NAME)
+            if not faculty:
+                faculty = Faculty(university_id=univ.id, name=GENERAL_FACULTY_NAME)
+                session.add(faculty)
+                await session.flush()
+            group = Group(university_id=univ.id, faculty_id=faculty.id, name=pretty_group_name(group_name))
+            session.add(group)
+            await session.flush()
+
+        await session.commit()
+        return univ, group
 
     @staticmethod
     async def get_or_create_university_by_name(session: AsyncSession, name: str) -> University:

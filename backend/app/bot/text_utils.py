@@ -13,6 +13,14 @@ from app.models.enums import DayOfWeek
 from app.services.schedule_service import current_local_date, week_parity_for
 
 
+async def show_typing(message: Any) -> None:
+    """'yozmoqda...' animatsiyasi - faqat bezak, xato bo'lsa asosiy ish to'xtamasligi kerak"""
+    try:
+        await message.bot.send_chat_action(message.chat.id, "typing")
+    except Exception:
+        pass
+
+
 def esc(value: Any) -> str:
     """
     Telegram parse_mode='HTML' xabarlariga qo'yiladigan har qanday foydalanuvchi yoki AI
