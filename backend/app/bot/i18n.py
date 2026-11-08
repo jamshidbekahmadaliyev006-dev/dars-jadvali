@@ -173,8 +173,8 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "ru": "🏛 <b>Напишите название университета</b>\n\nНапример: ТУИТ",
     },
     "ask_faculty": {
-        "uz": "🏢 <b>Fakultetingiz?</b>\n\nTanlang yoki nomini yozing:",
-        "ru": "🏢 <b>Ваш факультет?</b>\n\nВыберите или напишите название:",
+        "uz": "🎓 <b>Fakultetingiz nomini yozing</b>\n\nMasalan: Kiberxavfsizlik",
+        "ru": "🎓 <b>Напишите название факультета</b>\n\nНапример: Кибербезопасность",
     },
     "ask_group": {
         "uz": "👥 <b>Guruhingizni yozing</b>\n\nMasalan: 712-24",

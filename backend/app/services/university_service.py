@@ -235,21 +235,57 @@ class UniversityService:
         return next((g for g in groups if group_key(g.name) == key), None)
 
     @staticmethod
-    async def register_university_and_group(session: AsyncSession, university_name: str, group_name: str):
-        """Faqat universitet va guruh nomi bilan topadi yoki yaratadi (fakultet so'ralmaydi)"""
+    async def match_faculty(session: AsyncSession, university_id: int, name: str) -> Optional[Faculty]:
+        """Fakultet: harf/belgi farqi, qisqartma va kichik imlo xatosi ('Kiberxafvsizlik') e'tiborsiz"""
+        key = name_key(name)
+        if not key:
+            return None
+        faculties = [
+            f for f in (await session.execute(select(Faculty).where(Faculty.university_id == university_id))).scalars().all()
+            if f.name != GENERAL_FACULTY_NAME
+        ]
+        for f in faculties:
+            if key in (name_key(f.name), name_key(f.short_name or "")):
+                return f
+        close = [f for f in faculties if SequenceMatcher(None, key, name_key(f.name)).ratio() >= 0.85]
+        if len(close) == 1:
+            return close[0]
+        by_acronym = [f for f in faculties if acronym(f.name) and acronym(f.name) == key]
+        return by_acronym[0] if len(by_acronym) == 1 else None
+
+    @staticmethod
+    async def register_university_and_group(
+        session: AsyncSession, university_name: str, group_name: str, faculty_name: Optional[str] = None
+    ):
+        """Universitet, fakultet va guruhni yozilgan nom bo'yicha topadi yoki yaratadi"""
         univ = await UniversityService.match_university(session, university_name)
         if not univ:
             univ = University(name=university_name.strip())
             session.add(univ)
             await session.flush()
 
-        group = await UniversityService.match_group(session, univ.id, group_name)
-        if not group:
-            faculty = await UniversityService.find_faculty_by_name(session, univ.id, GENERAL_FACULTY_NAME)
+        faculty = None
+        if faculty_name and faculty_name.strip():
+            faculty = await UniversityService.match_faculty(session, univ.id, faculty_name)
             if not faculty:
-                faculty = Faculty(university_id=univ.id, name=GENERAL_FACULTY_NAME)
+                faculty = Faculty(university_id=univ.id, name=faculty_name.strip())
                 session.add(faculty)
                 await session.flush()
+
+        group = await UniversityService.match_group(session, univ.id, group_name)
+        if group:
+            # Fakultetsiz yozilgan eski guruh - endi talaba aytgan fakultetga o'tkaziladi.
+            # Boshqa fakultetda bo'lsa o'zgartirmaymiz: guruhdoshlar jadvali bitta qolsin.
+            current = await session.get(Faculty, group.faculty_id)
+            if faculty and current and current.name == GENERAL_FACULTY_NAME:
+                group.faculty_id = faculty.id
+        else:
+            if not faculty:
+                faculty = await UniversityService.find_faculty_by_name(session, univ.id, GENERAL_FACULTY_NAME)
+                if not faculty:
+                    faculty = Faculty(university_id=univ.id, name=GENERAL_FACULTY_NAME)
+                    session.add(faculty)
+                    await session.flush()
             group = Group(university_id=univ.id, faculty_id=faculty.id, name=pretty_group_name(group_name))
             session.add(group)
             await session.flush()

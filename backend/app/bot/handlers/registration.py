@@ -11,7 +11,8 @@ from app.bot.text_utils import esc, format_weekly_schedule
 from app.models.enums import UserRole
 from app.models.user import User
 from app.services.schedule_service import ScheduleService
-from app.services.university_service import UniversityService
+from app.models.university import Faculty
+from app.services.university_service import GENERAL_FACULTY_NAME, UniversityService
 
 router = Router(name="registration")
 
@@ -52,6 +53,19 @@ async def process_university(message: Message, state: FSMContext, current_user: 
         return
 
     await state.update_data(university_name=name)
+    await state.set_state(RegistrationStates.waiting_faculty)
+    await message.answer(t(lang, "ask_faculty"), parse_mode="HTML")
+
+
+@router.message(RegistrationStates.waiting_faculty, F.text)
+async def process_faculty(message: Message, state: FSMContext, current_user: User) -> None:
+    lang = lang_of(current_user)
+    name = (message.text or "").strip()
+    if not _is_valid_name(name):
+        await message.answer(t(lang, "bad_faculty"))
+        return
+
+    await state.update_data(faculty_name=name)
     await state.set_state(RegistrationStates.waiting_group)
     await message.answer(t(lang, "ask_group"), parse_mode="HTML")
 
@@ -66,8 +80,9 @@ async def process_group(message: Message, state: FSMContext, current_user: User,
 
     data = await state.get_data()
     univ, group = await UniversityService.register_university_and_group(
-        session, data.get("university_name", ""), name
+        session, data.get("university_name", ""), name, faculty_name=data.get("faculty_name")
     )
+    faculty = await session.get(Faculty, group.faculty_id)
 
     current_user.university_id = univ.id
     current_user.faculty_id = group.faculty_id
@@ -77,7 +92,8 @@ async def process_group(message: Message, state: FSMContext, current_user: User,
 
     is_admin = current_user.role == UserRole.ADMIN
     kb = get_admin_main_keyboard(lang) if is_admin else get_user_main_keyboard(lang)
-    profile_text = f"{t(lang, 'registered')}\n\n🏛 {esc(univ.name)}\n👥 {esc(group.name)}\n\n"
+    faculty_line = f"🎓 {esc(faculty.name)}\n" if faculty and faculty.name != GENERAL_FACULTY_NAME else ""
+    profile_text = f"{t(lang, 'registered')}\n\n🏛 {esc(univ.name)}\n{faculty_line}👥 {esc(group.name)}\n\n"
 
     # Guruh jadvali bazada bo'lsa - darhol ko'rsatiladi, rasm so'ralmaydi
     schedules = await ScheduleService.get_schedules(session, group_id=group.id)

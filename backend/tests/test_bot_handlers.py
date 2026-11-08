@@ -396,3 +396,25 @@ def test_schedule_issues_groups_many_missing_buildings_into_one_line():
     ]
     issues = schedule_issues(lessons, "uz")
     assert len(issues) == 1 and "5 ta darsda bino aniqlanmadi" in issues[0]
+
+
+async def test_registration_with_faculty_matches_typos_and_keeps_one_group(db_session: AsyncSession):
+    from app.models.university import Faculty
+    from app.services.university_service import UniversityService
+
+    u1, g1 = await UniversityService.register_university_and_group(db_session, "TATU", "712-24", faculty_name="Kiberxavfsizlik")
+    u2, g2 = await UniversityService.register_university_and_group(db_session, "tatu", "712_24", faculty_name="kiberxafvsizlik")
+    assert g1.id == g2.id
+    faculty = await db_session.get(Faculty, g1.faculty_id)
+    assert faculty.name == "Kiberxavfsizlik"
+
+
+async def test_group_without_faculty_moves_to_named_faculty(db_session: AsyncSession):
+    from app.models.university import Faculty
+    from app.services.university_service import GENERAL_FACULTY_NAME, UniversityService
+
+    _, g = await UniversityService.register_university_and_group(db_session, "TATU", "732-24")
+    assert (await db_session.get(Faculty, g.faculty_id)).name == GENERAL_FACULTY_NAME
+    _, g2 = await UniversityService.register_university_and_group(db_session, "TATU", "732 24", faculty_name="Kiberxavfsizlik")
+    assert g2.id == g.id
+    assert (await db_session.get(Faculty, g2.faculty_id)).name == "Kiberxavfsizlik"
