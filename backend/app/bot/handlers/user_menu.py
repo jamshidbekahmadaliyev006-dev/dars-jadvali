@@ -25,6 +25,7 @@ from app.bot.text_utils import (
     schedule_issues,
     show_typing,
     esc,
+    format_date,
     format_day_schedule,
     format_weekly_schedule,
     schedule_summary,
@@ -75,7 +76,7 @@ async def handle_today_lessons(message: Message, current_user: User, session: As
         day_of_week=today_enum,
         week_parity=week_parity_for(current_local_date()),
     )
-    title = t(lang, "today_title", day=DAY_LABELS[lang][today_enum])
+    title = t(lang, "today_title", day=format_date(current_local_date(), lang))
     await message.answer(format_day_schedule("📖", title, schedules, lang), parse_mode="HTML")
 
 
@@ -93,7 +94,7 @@ async def handle_tomorrow_lessons(message: Message, current_user: User, session:
         day_of_week=tomorrow_enum,
         week_parity=week_parity_for(current_local_date() + timedelta(days=1)),
     )
-    title = t(lang, "tomorrow_title", day=DAY_LABELS[lang][tomorrow_enum])
+    title = t(lang, "tomorrow_title", day=format_date(current_local_date() + timedelta(days=1), lang))
     await message.answer(format_day_schedule("📆", title, schedules, lang), parse_mode="HTML")
 
 
@@ -138,11 +139,13 @@ async def handle_day_tab(query: CallbackQuery, current_user: User, session: Asyn
     choice = query.data.split("_", 1)[1]
     active = -1 if choice == "all" else int(choice)
     parity = None
+    target = None
     if active >= 0:
         today = current_local_date()
-        parity = week_parity_for(today + timedelta(days=active - today.weekday()))
+        target = today + timedelta(days=active - today.weekday())
+        parity = week_parity_for(target)
 
-    cache_key = (current_user.group_id, lang, active, parity)
+    cache_key = (current_user.group_id, lang, active, target)
     cached = SCHEDULE_VIEW_CACHE.get(cache_key)
     if cached and time.monotonic() - cached[0] < SCHEDULE_VIEW_TTL_SECONDS:
         text = cached[1]
@@ -155,7 +158,7 @@ async def handle_day_tab(query: CallbackQuery, current_user: User, session: Asyn
             schedules = await ScheduleService.get_schedules(
                 session, group_id=current_user.group_id, day_of_week=day_enum, week_parity=parity,
             )
-            text = format_day_schedule("📅", DAY_LABELS[lang][day_enum], schedules, lang)
+            text = format_day_schedule("📅", format_date(target, lang), schedules, lang)
         SCHEDULE_VIEW_CACHE[cache_key] = (time.monotonic(), text)
 
     try:

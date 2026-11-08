@@ -198,6 +198,7 @@ TEXTS: Dict[str, Dict[str, str]] = {
               "<code>Понедельник 08:00-09:30 Математика A-327\nПонедельник 09:30-11:00 Физика A-210</code>",
     },
     # Jadval
+    "week_today": {"uz": "📅 Bugun: {date}", "ru": "📅 Сегодня: {date}"},
     "today_title": {"uz": "Bugun, {day}", "ru": "Сегодня, {day}"},
     "tomorrow_title": {"uz": "Ertaga, {day}", "ru": "Завтра, {day}"},
     "day_empty": {"uz": "Dars yo'q 🎉", "ru": "Занятий нет 🎉"},

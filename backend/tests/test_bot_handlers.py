@@ -418,3 +418,31 @@ async def test_group_without_faculty_moves_to_named_faculty(db_session: AsyncSes
     _, g2 = await UniversityService.register_university_and_group(db_session, "TATU", "732 24", faculty_name="Kiberxavfsizlik")
     assert g2.id == g.id
     assert (await db_session.get(Faculty, g2.faculty_id)).name == "Kiberxavfsizlik"
+
+
+@pytest.mark.parametrize(
+    "lang, with_year, expected",
+    [
+        ("uz", False, "9-noyabr, Dushanba"),
+        ("uz", True, "9-noyabr 2026, Dushanba"),
+        ("ru", True, "9 ноября 2026, Понедельник"),
+    ],
+)
+def test_format_date(lang, with_year, expected):
+    from datetime import date
+    from app.bot.text_utils import format_date
+
+    assert format_date(date(2026, 11, 9), lang, with_year=with_year) == expected
+
+
+def test_reminder_shows_lesson_date():
+    from datetime import date
+    from types import SimpleNamespace
+    from app.bot.text_utils import format_reminder
+
+    sched = SimpleNamespace(
+        subject=SimpleNamespace(name="Matematika"), start_time="08:00", end_time="09:30", room=None, teacher=None
+    )
+    text = format_reminder(sched, 15, "uz", lesson_date=date(2026, 11, 9))
+    assert "📅 9-noyabr 2026, Dushanba" in text
+    assert "08:00–09:30" in text

@@ -104,7 +104,9 @@ async def _process_schedules(session: AsyncSession, schedules, now: datetime) ->
                     if not already_sent:
                         # Sekundlar yaxlitlanadi, sozlamadan ko'p ko'rsatilmaydi
                         minutes_left = min(minutes_before, max(0, math.ceil(time_diff.total_seconds() / 60)))
-                        msg_text = format_reminder(sched, minutes_left, lang_of(student))
+                        msg_text = format_reminder(
+                            sched, minutes_left, lang_of(student), lesson_date=lesson_start_dt.date()
+                        )
 
                         sent_success = False
                         error_txt = None

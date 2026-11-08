@@ -1,5 +1,6 @@
+from datetime import date
 from html import escape
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 from app.bot.i18n import (
     DAY_LABELS,
     DEFAULT_LANG,
@@ -128,6 +129,7 @@ def format_weekly_schedule(schedules: Sequence[Any], lang: str = DEFAULT_LANG) -
     current_parity = week_parity_for(current_local_date())
     lines = [
         t(lang, "week_title"),
+        t(lang, "week_today", date=format_date(current_local_date(), lang, with_year=True)),
         schedule_summary(schedules, lang),
         t(lang, "week_now", parity=PARITY_LABELS[lang][current_parity]),
     ]
@@ -141,17 +143,40 @@ def format_weekly_schedule(schedules: Sequence[Any], lang: str = DEFAULT_LANG) -
     return "\n".join(lines)
 
 
-def format_reminder(schedule: Any, minutes_left: int, lang: str = DEFAULT_LANG) -> str:
+_MONTHS = {
+    "uz": ["yanvar", "fevral", "mart", "aprel", "may", "iyun",
+           "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"],
+    "ru": ["января", "февраля", "марта", "апреля", "мая", "июня",
+           "июля", "августа", "сентября", "октября", "ноября", "декабря"],
+}
+
+
+def format_date(value: date, lang: str = DEFAULT_LANG, with_year: bool = False) -> str:
+    """9-noyabr, Dushanba  /  9 ноября, Понедельник (with_year: 9-noyabr 2026, Dushanba)"""
+    lang = lang if lang in _MONTHS else DEFAULT_LANG
+    month = _MONTHS[lang][value.month - 1]
+    weekday = DAY_LABELS[lang][list(DayOfWeek)[value.weekday()]]
+    year = f" {value.year}" if with_year else ""
+    if lang == "ru":
+        return f"{value.day} {month}{year}, {weekday}"
+    return f"{value.day}-{month}{year}, {weekday}"
+
+
+def format_reminder(
+    schedule: Any, minutes_left: int, lang: str = DEFAULT_LANG, lesson_date: Optional[date] = None
+) -> str:
     if minutes_left > 0:
         header = t(lang, "reminder_in", time=format_minutes(minutes_left, lang))
     else:
         header = t(lang, "reminder_now")
 
+    end = f"–{esc(schedule.end_time)}" if getattr(schedule, "end_time", None) else ""
     lines = [
         header,
         "",
+        f"📅 {format_date(lesson_date or current_local_date(), lang, with_year=True)}",
         f"📚 {esc(schedule.subject.name) if schedule.subject else '—'}",
-        f"🕒 {esc(schedule.start_time)}",
+        f"🕒 {esc(schedule.start_time)}{end}",
     ]
     if schedule.room:
         lines.append(f"📍 {esc(schedule.room.number)}")
