@@ -1,7 +1,7 @@
 from datetime import datetime
 import math
 import pytz
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.bot.bot_instance import get_bot
@@ -16,6 +16,16 @@ from app.models.user import User
 from app.bot.i18n import lang_of
 from app.bot.text_utils import format_reminder
 from app.services.schedule_service import week_parity_for
+
+
+# Telegram'ning qayta urinish befoyda bo'lgan javoblari
+PERMANENT_SEND_ERRORS = (
+    "forbidden",
+    "chat not found",
+    "user is deactivated",
+    "bot was blocked",
+    "bot can't initiate",
+)
 
 
 async def check_and_send_lesson_reminders():
@@ -90,13 +100,19 @@ async def _process_schedules(session: AsyncSession, schedules, now: datetime) ->
                     # Takroriy yuborishni oldini olish
                     # created_at UTC'da saqlanadi. Sarlavha aniq solishtiriladi: bir kunda bir xil
                     # fan ikki marta bo'lsa yoki nomi boshqasining boshi bo'lsa, eslatma yo'qolmaydi.
-                    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
                     log_title = f"Dars: {sched.subject.name if sched.subject else 'Fan nomi'} ({sched.start_time})"
+                    # Yuborilgan yoki yuborib BO'LMAYDIGAN (talaba botni bloklagan / yangi botda hali
+                    # /start bosmagan) eslatma qayta urinilmaydi - aks holda har daqiqada xato yoziladi.
+                    # Vaqtinchalik tarmoq xatolarida esa keyingi daqiqada yana urinib ko'riladi.
                     stmt_log = select(NotificationLog.id).where(
                         NotificationLog.user_id == student.id,
                         NotificationLog.title == log_title,
-                        NotificationLog.is_success == True,
-                        NotificationLog.created_at >= today_start,
+                        # Aynan shu kungi shu dars (boshlanish vaqti bo'yicha) - created_at/UTC'ga bog'liq emas
+                        NotificationLog.scheduled_for == lesson_start_dt.replace(tzinfo=None),
+                        or_(
+                            NotificationLog.is_success == True,
+                            *[NotificationLog.error_message.ilike(f"%{marker}%") for marker in PERMANENT_SEND_ERRORS],
+                        ),
                     ).limit(1)
                     res_log = await session.execute(stmt_log)
                     already_sent = res_log.first()
@@ -131,7 +147,7 @@ async def _process_schedules(session: AsyncSession, schedules, now: datetime) ->
                             notification_type=NotificationType.LESSON_REMINDER,
                             title=log_title,
                             body=msg_text,
-                            scheduled_for=lesson_start_dt,
+                            scheduled_for=lesson_start_dt.replace(tzinfo=None),  # mahalliy (Toshkent) vaqt
                             sent_at=now,
                             is_success=sent_success,
                             error_message=error_txt,
