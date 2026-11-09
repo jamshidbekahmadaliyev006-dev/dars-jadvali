@@ -108,14 +108,14 @@ def looks_too_small(images) -> bool:
     return False
 
 
-MIN_PX_PER_DAY = 150  # bir kun ustuniga shuncha pikseldan kam tushsa, yozuv (xona, vaqt) ishonchli o'qilmaydi
+MIN_PX_PER_DAY = 160  # bir kun ustuniga shuncha pikseldan kam tushsa, yozuv (xona, vaqt) ishonchli o'qilmaydi
 MIN_DAYS_FOR_RULE = 3  # qoida faqat ko'p kunli (butun hafta) rasmga qo'llanadi: 1-2 kunlik kattalashtirilgan rasm normal
 
 
-def too_small_for_lessons(image: bytes, lessons) -> bool:
+def small_image_details(image: bytes, lessons):
     """
-    Bitta rasm uchun: kengligi / o'qilgan kunlar soni. 576 px kenglikka 5 kun sig'sa (115 px/kun) matn 9-10 px bo'ladi -
-    xira. Aniq rasmda 200+ px/kun. O'lcham bilib bo'lmasa yoki kunlar kam bo'lsa - rad etilmaydi.
+    Bitta rasm uchun: kengligi / o'qilgan kunlar soni. Juda kam bo'lsa - aniq raqamlar (lug'at), aks holda None.
+    576 px ga 5 kun sig'sa (115 px/kun) matn 9-10 px bo'ladi; 720 px ga 5 kun (144 px/kun) ham yetarli emas.
     """
     from app.services.schedule_service import resolve_day_of_week
 
@@ -123,5 +123,12 @@ def too_small_for_lessons(image: bytes, lessons) -> bool:
     days = {resolve_day_of_week(item.get("day")) for item in lessons}
     days.discard(None)
     if not size or len(days) < MIN_DAYS_FOR_RULE:
-        return False
-    return min(size) / len(days) < MIN_PX_PER_DAY if size[0] <= size[1] else size[0] / len(days) < MIN_PX_PER_DAY
+        return None
+    per_day = size[0] / len(days)
+    if per_day >= MIN_PX_PER_DAY:
+        return None
+    return {"w": size[0], "h": size[1], "days": len(days), "pd": round(per_day), "min": MIN_PX_PER_DAY}
+
+
+def too_small_for_lessons(image: bytes, lessons) -> bool:
+    return small_image_details(image, lessons) is not None

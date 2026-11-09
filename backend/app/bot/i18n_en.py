@@ -188,4 +188,6 @@ EN = {
     'group_mismatch': '⚠️ The photo shows another group: <b>{seen}</b>, so the timetable was <b>not saved</b>.\nPlease send your own group timetable.',
     'schedule_lookalike': '⚠️ This timetable is identical to group <b>{group}</b>, so it was <b>not saved</b>.\nPlease send your own group timetable.',
     'group_schedule_replaced': '📅 The timetable of group <b>{group}</b> has been updated.\nSee: 📅 Timetable',
+    'schedule_unclear': '📷 <b>The photo is blurry or taken from too far</b> - the text (room, time) is not clearly visible, so the timetable was <b>not saved</b> (to avoid entering wrong data).\n\nPlease send it <b>closer and sharper</b>: zoom in on your phone so the table alone fills the screen and take a screenshot. Or send the image as a <b>file</b> (📎 → File).',
+    'unclear_facts': '📐 Photo: {w}×{h} px, {days} days - about {pd} px per day (at least {min} px needed).',
 }

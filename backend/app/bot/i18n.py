@@ -178,8 +178,12 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "ru": "📅 Расписание группы <b>{group}</b> обновлено."+NL+"Смотреть: 📅 Расписание",
     },
     "schedule_unclear": {
-        "uz": "📷 <b>Rasm aniq emas</b> - mayda yozuvlar (xona, vaqt) ishonchli o'qilmadi, shuning uchun jadval <b>saqlanmadi</b> (noto'g'ri ma'lumot kiritmaslik uchun)."+NL+NL+"Iltimos, <b>tiniq</b> rasm yuboring: jadvalni telefonda kattalashtiring, faqat jadvalning o'zi ekranni to'ldirsin va skrinshot oling. Yoki rasmni <b>fayl</b> qilib yuboring (📎 → Fayl).",
-        "ru": "📷 <b>Фото нечёткое</b> - мелкий текст (аудитории, время) не удалось прочитать надёжно, поэтому расписание <b>не сохранено</b> (чтобы не вносить неверные данные)."+NL+NL+"Пожалуйста, отправьте <b>чёткое</b> фото: увеличьте расписание на телефоне, чтобы одна таблица занимала весь экран, и сделайте скриншот. Или отправьте фото <b>файлом</b> (📎 → Файл).",
+        "uz": "📷 <b>Rasm xira yoki uzoqdan olingan</b> - yozuvlar (xona, vaqt) aniq ko'rinmaydi, shuning uchun jadval <b>saqlanmadi</b> (noto'g'ri ma'lumot kiritmaslik uchun)."+NL+NL+"Iltimos, <b>yaqinroqdan, tiniq</b> rasm yuboring: telefonda jadvalni kattalashtiring, faqat jadvalning o'zi ekranni to'ldirsin va skrinshot oling. Yoki rasmni <b>fayl</b> qilib yuboring (📎 → Fayl).",
+        "ru": "📷 <b>Фото нечёткое или снято слишком далеко</b> - надписи (аудитория, время) плохо видны, поэтому расписание <b>не сохранено</b> (чтобы не вносить неверные данные)."+NL+NL+"Пожалуйста, отправьте <b>крупнее и чётче</b>: увеличьте расписание на телефоне, чтобы одна таблица занимала весь экран, и сделайте скриншот. Или отправьте фото <b>файлом</b> (📎 → Файл).",
+    },
+    "unclear_facts": {
+        "uz": "📐 Rasm: {w}×{h} px, {days} kun - bir kunga ~{pd} px (kamida {min} px kerak).",
+        "ru": "📐 Фото: {w}×{h} px, дней: {days} - на день ~{pd} px (нужно не меньше {min} px).",
     },
     "schedule_partial": {
         "uz": "⚠️ <b>Bu jadval to'liq emas</b>, shuning uchun saqlanmadi."+NL+NL+"Rasmda faqat: {days} ({lessons}) ko'rindi."+NL+NL+"Iltimos, <b>butun haftalik jadvalni</b> (Dushanbadan Shanbagacha, hamma kunlar) yuboring. Jadval bir rasmga sig'masa, bir nechta rasmni <b>birga</b> (albom qilib) yuboring - bot ularni bitta jadval qilib o'qiydi.",

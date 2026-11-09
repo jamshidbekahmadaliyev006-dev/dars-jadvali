@@ -418,7 +418,8 @@ async def test_unclear_photo_is_not_saved_and_user_is_asked_for_a_sharper_one(db
     sub = (await db_session.execute(sa_select(ScheduleSubmission))).scalars().first()
     assert sub.status == SubmissionStatus.NEEDS_CORRECTION and sub.image_file_id == "-"
     shown = loading.edit_text.call_args.args[0]
-    assert "Rasm aniq emas" in shown and "saqlanmadi" in shown and "tiniq" in shown and "fayl" in shown
+    assert "xira yoki uzoqdan" in shown and "saqlanmadi" in shown and "tiniq" in shown and "fayl" in shown
+    assert "576×1280" in shown and "~115 px" in shown and "160 px" in shown      # aniq raqamlar keltirilgan
     msg.bot.send_message.assert_not_awaited()
 
     # Aniq rasm (1080 px, 5 kun): odatdagidek saqlanadi
@@ -474,3 +475,15 @@ async def test_first_schedule_of_a_group_is_decided_by_the_bot_instantly(db_sess
     text = info[0].args[1] if len(info[0].args) > 1 else info[0].kwargs.get("text")
     assert "Saqlandi" in text and "Yangi" in text and "6 ta dars" in text
     assert info[0].kwargs.get("reply_markup") is None          # faqat ma'lumot - tugma yo'q
+
+
+def test_the_four_unclear_photos_from_students_are_all_rejected_with_numbers():
+    """Haqiqiy talaba rasmlari o'lchamlari: 576x1280, 720x451, 720x590, 720x560 (5 kun) - hammasi rad"""
+    from app.bot.album import small_image_details
+
+    week = [{"day": d} for d in ("Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma")]
+    for w, h, per_day in [(576, 1280, 115), (720, 451, 144), (720, 590, 144), (720, 560, 144)]:
+        details = small_image_details(_png(w, h), week)
+        assert details == {"w": w, "h": h, "days": 5, "pd": per_day, "min": 160}
+    assert small_image_details(_png(1280, 736), week) is None     # aniq rasm: 256 px/kun
+    assert small_image_details(_png(1080, 2400), week) is None    # fayl qilib yuborilgan skrinshot: 216 px/kun
