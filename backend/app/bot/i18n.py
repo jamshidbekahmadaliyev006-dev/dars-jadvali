@@ -2,7 +2,7 @@ from typing import Any, Dict, Set
 from app.models.enums import DayOfWeek, SubmissionStatus, WeekParity
 
 DEFAULT_LANG = "uz"
-LANGUAGES = ("uz", "ru")
+LANGUAGES = ("uz", "ru", "en")
 
 DAY_LABELS: Dict[str, Dict[DayOfWeek, str]] = {
     "uz": {
@@ -23,6 +23,12 @@ DAY_LABELS: Dict[str, Dict[DayOfWeek, str]] = {
         DayOfWeek.SATURDAY: "Суббота",
         DayOfWeek.SUNDAY: "Воскресенье",
     },
+}
+
+DAY_LABELS["en"] = {
+    DayOfWeek.MONDAY: "Monday", DayOfWeek.TUESDAY: "Tuesday", DayOfWeek.WEDNESDAY: "Wednesday",
+    DayOfWeek.THURSDAY: "Thursday", DayOfWeek.FRIDAY: "Friday", DayOfWeek.SATURDAY: "Saturday",
+    DayOfWeek.SUNDAY: "Sunday",
 }
 
 PARITY_LABELS: Dict[str, Dict[WeekParity, str]] = {
@@ -49,6 +55,17 @@ STATUS_LABELS: Dict[str, Dict[SubmissionStatus, str]] = {
         SubmissionStatus.REJECTED: "❌ Отклонено",
         SubmissionStatus.NEEDS_CORRECTION: "⚠️ Не удалось распознать",
     },
+}
+
+PARITY_LABELS["en"] = {WeekParity.ODD: "odd week", WeekParity.EVEN: "even week"}
+STATUS_LABELS["en"] = {
+    SubmissionStatus.PENDING: "⏳ Received",
+    SubmissionStatus.AI_PROCESSING: "⏳ Reading",
+    SubmissionStatus.AI_COMPLETED: "⏳ Read",
+    SubmissionStatus.ADMIN_REVIEW: "🔍 Under admin review",
+    SubmissionStatus.APPROVED: "✅ Approved",
+    SubmissionStatus.REJECTED: "❌ Rejected",
+    SubmissionStatus.NEEDS_CORRECTION: "⚠️ Could not read",
 }
 
 NL = chr(10)  # matnlarda qator ko'chishi
@@ -147,6 +164,10 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "review_buttons": {
         "uz": "👆 <b>Jadval #{id}</b> — {n} ta rasm. Tekshirib, qaror qiling:",
         "ru": "👆 <b>Расписание #{id}</b> — фото: {n}. Проверьте и решите:",
+    },
+    "schedule_lookalike": {
+        "uz": "⚠️ Bu jadval <b>{group}</b> guruhining jadvaliga aynan o'xshaydi. Guruhingiz to'g'riligini admin tekshiradi.",
+        "ru": "⚠️ Это расписание полностью совпадает с расписанием группы <b>{group}</b>. Админ проверит, что оно ваше.",
     },
     "group_mismatch": {
         "uz": "⚠️ Rasmda boshqa guruh ko'rinyapti: <b>{seen}</b>. Jadval admin tekshiruvidan keyin saqlanadi.",
@@ -320,6 +341,17 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "uz": "⏰ <b>Eslatma vaqti</b>\n\nHozir: darsdan {time} oldin.\n\nYangi vaqtni tanlang yoki daqiqada yozing (1–180):",
         "ru": "⏰ <b>Время напоминания</b>\n\nСейчас: за {time} до занятия.\n\nВыберите новое время или напишите в минутах (1–180):",
     },
+    "btn_remind_off": {"uz": "🔕 Eslatmani o'chirish", "ru": "🔕 Выключить напоминания"},
+    "btn_remind_on": {"uz": "🔔 Eslatmani yoqish", "ru": "🔔 Включить напоминания"},
+    "reminder_turned_off": {
+        "uz": "🔕 <b>Eslatmalar o'chirildi.</b> Qayta yoqish: ⏰ Eslatma.",
+        "ru": "🔕 <b>Напоминания выключены.</b> Включить снова: ⏰ Напоминание.",
+    },
+    "reminder_prompt_off": {
+        "uz": "⏰ <b>Eslatma</b>"+NL+NL+"Hozir: 🔕 o'chirilgan."+NL+NL+"Yoqish uchun vaqtni tanlang:",
+        "ru": "⏰ <b>Напоминание</b>"+NL+NL+"Сейчас: 🔕 выключено."+NL+NL+"Чтобы включить, выберите время:",
+    },
+    "profile_reminder_off": {"uz": "⏰ Eslatma: o'chirilgan", "ru": "⏰ Напоминание: выключено"},
     "reminder_saved": {
         "uz": "✅ Eslatma endi darsdan <b>{time}</b> oldin keladi.",
         "ru": "✅ Теперь напоминание придёт за <b>{time}</b> до занятия.",
@@ -389,6 +421,14 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "ru": "❌ <b>Ваше расписание отклонено</b>\n\nПопробуйте отправить более чёткое фото.",
     },
     "groups_empty": {"uz": "👥 Hali guruh yo'q.", "ru": "👥 Групп пока нет."},
+    "groups_summary": {
+        "uz": "🎓 Fakultetlar: {faculties} · 👥 Guruhlar: {groups} · 📅 Jadvali bor: {with_schedule}",
+        "ru": "🎓 Факультетов: {faculties} · 👥 Групп: {groups} · 📅 С расписанием: {with_schedule}",
+    },
+    "groups_legend": {
+        "uz": "✅ jadval bor · ⚪️ jadval yo'q · 👤 talabalar · 📚 darslar"+NL+"⚠️ — jadvali shu guruhnikiga deyarli bir xil (adashgan bo'lishi mumkin)",
+        "ru": "✅ есть расписание · ⚪️ нет · 👤 студенты · 📚 занятия"+NL+"⚠️ — расписание почти совпадает с указанной группой (возможна ошибка)",
+    },
     "groups_title": {"uz": "👥 <b>Guruhlar</b>\n", "ru": "👥 <b>Группы</b>\n"},
     "group_counts": {"uz": "{students} talaba · {lessons} dars", "ru": "студентов: {students} · занятий: {lessons}"},
     "users_title": {"uz": "👤 <b>Foydalanuvchilar</b>: {total} ta\n", "ru": "👤 <b>Пользователи</b>: {total}\n"},
@@ -400,6 +440,13 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "announce_prompt": {
         "uz": "📢 E'lon matnini yozing. U universitetingiz talabalariga yuboriladi.",
         "ru": "📢 Напишите текст объявления. Его получат студенты вашего университета.",
+    },
+    "announce_choose": {"uz": "📢 <b>E'lon kimga?</b>", "ru": "📢 <b>Кому объявление?</b>"},
+    "announce_to_all": {"uz": "🌐 Hammaga", "ru": "🌐 Всем"},
+    "announce_to_group": {"uz": "🎯 Faqat <b>{group}</b> guruhiga", "ru": "🎯 Только группе <b>{group}</b>"},
+    "announce_prompt_to": {
+        "uz": "📢 {audience} — <b>{count}</b> kishi."+NL+"E'lon matnini yozing:",
+        "ru": "📢 {audience} — <b>{count}</b> чел."+NL+"Напишите текст объявления:",
     },
     "announce_cancelled": {"uz": "❌ E'lon bekor qilindi.", "ru": "❌ Объявление отменено."},
     "announce_missing": {"uz": "E'lon topilmadi, qaytadan yozing", "ru": "Объявление не найдено, напишите заново"},
@@ -416,10 +463,25 @@ TEXTS: Dict[str, Dict[str, str]] = {
 }
 
 
+def _attach_english() -> None:
+    from app.bot.i18n_en import EN
+
+    for key, values in TEXTS.items():
+        values["en"] = EN.get(key) or values["uz"]
+    TEXTS["choose_language"]["en"] = TEXTS["choose_language"]["uz"]
+
+
+_attach_english()
+
+
 def lang_of(user: Any) -> str:
     """Foydalanuvchi tili; tanlanmagan yoki noma'lum bo'lsa o'zbekcha"""
     code = (getattr(user, "language_code", None) or "").lower()
-    return "ru" if code.startswith("ru") else DEFAULT_LANG
+    if code.startswith("ru"):
+        return "ru"
+    if code.startswith("en"):
+        return "en"
+    return DEFAULT_LANG
 
 
 def t(lang: str, key: str, **kwargs: Any) -> str:
@@ -455,6 +517,15 @@ def _ru_plural(n: int, one: str, few: str, many: str) -> str:
 def format_minutes(minutes: int, lang: str = DEFAULT_LANG) -> str:
     """Daqiqani tushunarli shaklga o'tkazadi: 30 -> '30 daqiqa (yarim soat)'"""
     hours, rest = divmod(minutes, 60)
+    if lang == "en":
+        base = f"{minutes} minute" + ("" if minutes == 1 else "s")
+        if minutes == 30:
+            return f"{base} (half an hour)"
+        if minutes > 0 and rest == 0:
+            return f"{base} ({hours} h)"
+        if minutes > 60:
+            return f"{base} ({hours} h {rest} min)"
+        return base
     if lang == "ru":
         base = f"{minutes} {_ru_plural(minutes, 'минуту', 'минуты', 'минут')}"
         if minutes == 30:
@@ -476,6 +547,8 @@ def format_minutes(minutes: int, lang: str = DEFAULT_LANG) -> str:
 
 
 def format_counts(subjects: int, lessons: int, lang: str = DEFAULT_LANG) -> str:
+    if lang == "en":
+        return f"{subjects} subject{'' if subjects == 1 else 's'} · {lessons} lesson{'' if lessons == 1 else 's'}"
     if lang == "ru":
         subject_word = _ru_plural(subjects, "предмет", "предмета", "предметов")
         lesson_word = _ru_plural(lessons, "занятие", "занятия", "занятий")
@@ -484,6 +557,8 @@ def format_counts(subjects: int, lessons: int, lang: str = DEFAULT_LANG) -> str:
 
 
 def format_lesson_count(lessons: int, lang: str = DEFAULT_LANG) -> str:
+    if lang == "en":
+        return f"{lessons} lesson{'' if lessons == 1 else 's'}"
     if lang == "ru":
         return f"{lessons} {_ru_plural(lessons, 'занятие', 'занятия', 'занятий')}"
     return f"{lessons} ta dars"

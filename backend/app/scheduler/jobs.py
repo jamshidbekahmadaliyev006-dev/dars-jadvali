@@ -19,6 +19,9 @@ from app.bot.text_utils import format_reminder, format_teacher_reminder
 from app.services.schedule_service import week_parity_for
 
 
+# Eslatma sozlamasida ruxsat etilgan eng katta oldindan vaqt (daqiqa)
+MAX_REMINDER_WINDOW_MINUTES = 180
+
 # Telegram'ning qayta urinish befoyda bo'lgan javoblari
 PERMANENT_SEND_ERRORS = (
     "forbidden",
@@ -121,16 +124,24 @@ async def _process_schedules(session: AsyncSession, schedules, now: datetime) ->
             time_diff = lesson_start_dt - now
             diff_minutes = int(time_diff.total_seconds() / 60)
 
-            # Guruh talabalarini olish
+            # Eng uzun eslatma oynasidan (180 daqiqa) uzoqdagi yoki o'tib ketgan darslar uchun talabalarni
+            # umuman yuklamaymiz - foydalanuvchilar ko'payganda har daqiqadagi bazaga yuklama kichik qoladi
+            if diff_minutes < 0 or diff_minutes > MAX_REMINDER_WINDOW_MINUTES:
+                continue
+
+            # Guruh talabalarini va ularning sozlamalarini BITTA so'rovda olish
             stmt_users = select(User).where(User.group_id == sched.group_id, User.is_active == True)
-            res_users = await session.execute(stmt_users)
-            students = res_users.scalars().all()
+            students = (await session.execute(stmt_users)).scalars().all()
+            if not students:
+                continue
+            settings_by_user = {
+                st.user_id: st for st in (await session.execute(
+                    select(ReminderSetting).where(ReminderSetting.user_id.in_([u.id for u in students]))
+                )).scalars().all()
+            }
 
             for student in students:
-                # Talabaning eslatma sozlamasini tekshirish
-                stmt_setting = select(ReminderSetting).where(ReminderSetting.user_id == student.id)
-                res_setting = await session.execute(stmt_setting)
-                setting = res_setting.scalar_one_or_none()
+                setting = settings_by_user.get(student.id)
                 minutes_before = setting.minutes_before if setting else 15
                 is_enabled = setting.is_enabled if setting else True
 

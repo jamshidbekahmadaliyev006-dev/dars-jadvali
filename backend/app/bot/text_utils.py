@@ -144,6 +144,8 @@ def format_weekly_schedule(schedules: Sequence[Any], lang: str = DEFAULT_LANG) -
 
 
 _MONTHS = {
+    "en": ["January", "February", "March", "April", "May", "June",
+           "July", "August", "September", "October", "November", "December"],
     "uz": ["yanvar", "fevral", "mart", "aprel", "may", "iyun",
            "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"],
     "ru": ["января", "февраля", "марта", "апреля", "мая", "июня",
@@ -159,6 +161,8 @@ def format_date(value: date, lang: str = DEFAULT_LANG, with_year: bool = False) 
     year = f" {value.year}" if with_year else ""
     if lang == "ru":
         return f"{value.day} {month}{year}, {weekday}"
+    if lang == "en":
+        return f"{weekday}, {month} {value.day}{year}"
     return f"{value.day}-{month}{year}, {weekday}"
 
 

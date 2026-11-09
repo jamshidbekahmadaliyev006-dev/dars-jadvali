@@ -298,33 +298,81 @@ async def handle_reject_submission_callback(query: CallbackQuery, current_user: 
     await _review(query, current_user, session, SubmissionStatus.REJECTED)
 
 
+def _lookalike_groups(lesson_rows) -> dict:
+    """Bir-biriga 90%+ o'xshash jadvalli guruhlar: {guruh_id: o'xshash guruh_id} - adashib yuborilgan jadval belgisi"""
+    sigs: dict = {}
+    for group_id, day, start, subject in lesson_rows:
+        sigs.setdefault(group_id, set()).add((day, start, (subject or "").lower()))
+    result = {}
+    ids = [g for g, sig in sigs.items() if len(sig) >= 3]
+    for i, a in enumerate(ids):
+        for b in ids[i + 1:]:
+            union = sigs[a] | sigs[b]
+            if union and len(sigs[a] & sigs[b]) / len(union) >= 0.9:
+                result.setdefault(a, b)
+                result.setdefault(b, a)
+    return result
+
+
+async def build_groups_report(session: AsyncSession, lang: str) -> list:
+    """Universitet -> fakultet -> guruhlar; har bir universitet alohida xabar (Telegram uzunlik chegarasi uchun)"""
+    groups = (await session.execute(select(Group).order_by(Group.name))).scalars().all()
+    if not groups:
+        return [t(lang, "groups_empty")]
+    universities = {u.id: u for u in (await session.execute(select(University))).scalars().all()}
+    faculties = {f.id: f for f in (await session.execute(select(Faculty))).scalars().all()}
+    students = dict((await session.execute(
+        select(User.group_id, func.count(User.id)).where(User.group_id.is_not(None)).group_by(User.group_id)
+    )).all())
+    lesson_rows = (await session.execute(
+        select(Schedule.group_id, Schedule.day_of_week, Schedule.start_time, Subject.name)
+        .join(Subject, Subject.id == Schedule.subject_id).where(Schedule.is_active == True)
+    )).all()
+    lessons = {}
+    for gid, *_ in lesson_rows:
+        lessons[gid] = lessons.get(gid, 0) + 1
+    names = {g.id: g.name for g in groups}
+    lookalike = _lookalike_groups([(g, d.value, st, sj) for g, d, st, sj in lesson_rows])
+
+    pages = []
+    for univ_id, univ in sorted(universities.items()):
+        univ_groups = [g for g in groups if g.university_id == univ_id]
+        if not univ_groups:
+            continue
+        with_schedule = sum(1 for g in univ_groups if lessons.get(g.id))
+        fac_count = len({g.faculty_id for g in univ_groups if faculties.get(g.faculty_id) and faculties[g.faculty_id].name != GENERAL_FACULTY_NAME})
+        lines = [
+            f"🏛 <b>{esc(univ.name)}</b>",
+            t(lang, "groups_summary", faculties=fac_count, groups=len(univ_groups), with_schedule=with_schedule),
+        ]
+        by_faculty: dict = {}
+        for g in univ_groups:
+            by_faculty.setdefault(g.faculty_id, []).append(g)
+        for fac_id, fac_groups in sorted(by_faculty.items(), key=lambda kv: (faculties[kv[0]].name if kv[0] in faculties else "")):
+            fname = faculties[fac_id].name if fac_id in faculties else "—"
+            lines.append(NL + f"🎓 <b>{esc(fname)}</b>")
+            for g in fac_groups:
+                has = bool(lessons.get(g.id))
+                row = f"{'✅' if has else '⚪️'} {esc(g.name)} — {students.get(g.id, 0)} 👤"
+                if has:
+                    row += f" · {lessons[g.id]} 📚"
+                if g.id in lookalike:
+                    row += f" ⚠️ {esc(names.get(lookalike[g.id], ''))}"
+                lines.append(row)
+        pages.append(NL.join(lines))
+    return pages
+
+
 @router.message(F.text.in_(labels("btn_groups")))
 async def handle_admin_groups(message: Message, current_user: User, session: AsyncSession):
-    if not is_admin_check(current_user):
-        return
     lang = lang_of(current_user)
-
-    groups = (await session.execute(
-        select(Group).options(selectinload(Group.university)).order_by(Group.id.desc()).limit(20)
-    )).scalars().all()
-    if not groups:
-        await message.answer(t(lang, "groups_empty"))
+    if not is_admin_check(current_user):
+        await message.answer(t(lang, "admin_only"))
         return
-
-    students = dict((await session.execute(
-        select(User.group_id, func.count(User.id)).group_by(User.group_id)
-    )).all())
-    lessons = dict((await session.execute(
-        select(Schedule.group_id, func.count(Schedule.id)).where(Schedule.is_active == True).group_by(Schedule.group_id)
-    )).all())
-
-    lines = [t(lang, "groups_title")]
-    for g in groups:
-        icon = "✅" if lessons.get(g.id) else "⚪️"
-        university = g.university.short_name or g.university.name if g.university else ""
-        counts = t(lang, "group_counts", students=students.get(g.id, 0), lessons=lessons.get(g.id, 0))
-        lines.append(f"{icon} <b>{esc(g.name)}</b> — {esc(university)}\n     {counts}")
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    pages = await build_groups_report(session, lang)
+    for index, page in enumerate(pages):
+        footer = (NL + NL + t(lang, "groups_legend")) if index == len(pages) - 1 else ""
+        await message.answer((page + footer)[:4000], parse_mode="HTML")
 
 
 @router.message(F.text.in_(labels("btn_users")))
@@ -336,21 +384,55 @@ async def handle_admin_users(message: Message, current_user: User, session: Asyn
     await message.answer(await _users_text(session, lang), parse_mode="HTML", reply_markup=_refresh_kb(lang, "adm_refresh_users"))
 
 
-async def _announcement_recipients(session: AsyncSession, university_id: int) -> list:
-    stmt = select(User).where(User.university_id == university_id, User.is_active == True)
+async def _announcement_recipients(session: AsyncSession, target: str) -> list:
+    """target: "all" - barcha faol foydalanuvchilar, "g<id>" - faqat shu guruh a'zolari"""
+    stmt = select(User).where(User.is_active == True)
+    if target.startswith("g") and target[1:].isdigit():
+        stmt = stmt.where(User.group_id == int(target[1:]))
     return list((await session.execute(stmt)).scalars().all())
 
 
+async def _audience_label(session: AsyncSession, target: str, lang: str) -> str:
+    if target.startswith("g") and target[1:].isdigit():
+        group = await session.get(Group, int(target[1:]))
+        return t(lang, "announce_to_group", group=esc(group.name if group else "?"))
+    return t(lang, "announce_to_all")
+
+
 @router.message(F.text.in_(labels("btn_announce")))
-async def handle_announcement_prompt(message: Message, current_user: User, state: FSMContext):
+async def handle_announcement_prompt(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
+    lang = lang_of(current_user)
     if not is_admin_check(current_user):
         return
+    await state.clear()
+    groups = (await session.execute(select(Group).order_by(Group.name))).scalars().all()
+    rows = [[InlineKeyboardButton(text=t(lang, "announce_to_all"), callback_data="ann_to_all")]]
+    chunk = []
+    for g in groups[:60]:
+        chunk.append(InlineKeyboardButton(text=g.name, callback_data=f"ann_to_g{g.id}"))
+        if len(chunk) == 3:
+            rows.append(chunk)
+            chunk = []
+    if chunk:
+        rows.append(chunk)
+    await message.answer(t(lang, "announce_choose"), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+@router.callback_query(F.data.startswith("ann_to_"))
+async def handle_announcement_audience(query: CallbackQuery, current_user: User, session: AsyncSession, state: FSMContext):
     lang = lang_of(current_user)
-    if not current_user.university_id:
-        await message.answer(t(lang, "announce_need_university"))
+    if not is_admin_check(current_user):
+        await query.answer(t(lang, "no_permission"), show_alert=True)
         return
+    target = query.data[len("ann_to_"):]
+    recipients = await _announcement_recipients(session, target)
     await state.set_state(AnnouncementStates.waiting_text)
-    await message.answer(t(lang, "announce_prompt"))
+    await state.update_data(announcement_target=target)
+    await query.answer()
+    await query.message.edit_text(
+        t(lang, "announce_prompt_to", audience=await _audience_label(session, target, lang), count=len(recipients)),
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(F.data == "announce_cancel")
@@ -371,24 +453,29 @@ async def handle_announcement_send(query: CallbackQuery, current_user: User, ses
         await query.answer(t(lang, "no_permission"), show_alert=True)
         return
 
-    text = (await state.get_data()).get("announcement_text")
+    data = await state.get_data()
+    text = data.get("announcement_text")
+    target = data.get("announcement_target", "all")
     await state.clear()
-    if not text or not current_user.university_id:
+    if not text:
         await query.answer(t(lang, "announce_missing"), show_alert=True)
         return
 
     await query.message.edit_text(t(lang, "announce_sending"))
     await query.answer()
 
-    session.add(Announcement(
-        university_id=current_user.university_id,
-        title=text[:100],
-        content=text,
-    ))
-    await session.commit()
+    univ_id = current_user.university_id
+    if target.startswith("g") and target[1:].isdigit():
+        group = await session.get(Group, int(target[1:]))
+        univ_id = group.university_id if group else univ_id
+    if not univ_id:
+        univ_id = await session.scalar(select(University.id).order_by(University.id).limit(1))
+    if univ_id:
+        session.add(Announcement(university_id=univ_id, title=text[:100], content=text))
+        await session.commit()
 
     sent = failed = 0
-    for student in await _announcement_recipients(session, current_user.university_id):
+    for student in await _announcement_recipients(session, target):
         try:
             await query.bot.send_message(
                 chat_id=student.telegram_id,
@@ -413,10 +500,11 @@ async def handle_announcement_text(message: Message, current_user: User, session
 
     lang = lang_of(current_user)
     text = (message.text or "").strip()
-    recipients = await _announcement_recipients(session, current_user.university_id)
+    target = (await state.get_data()).get("announcement_target", "all")
+    recipients = await _announcement_recipients(session, target)
     await state.update_data(announcement_text=text)
     await message.answer(
-        t(lang, "announce_preview", text=esc(text), count=len(recipients)),
+        t(lang, "announce_preview", text=esc(text), count=len(recipients)) + NL + NL + await _audience_label(session, target, lang),
         parse_mode="HTML",
         reply_markup=announcement_confirm_keyboard(lang),
     )

@@ -11,6 +11,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.handlers.registration import start_registration
 from app.bot.album import collect_album, pack_file_ids, send_submission_files
@@ -302,6 +303,44 @@ async def _group_mismatch(session: AsyncSession, user: User, lessons: List[dict]
     return ", ".join(sorted(seen))[:60]
 
 
+async def _lookalike_group(session: AsyncSession, user: User, lessons: List[dict]) -> Optional[str]:
+    """
+    Yangi jadval BOSHQA guruhning mavjud jadvaliga deyarli aynan o'xshasa (90%+), o'sha guruh nomi.
+    Odatda bu talaba adashib do'stining/boshqa guruhning rasmini yuborganini bildiradi.
+    """
+    from app.models.schedule import Schedule
+    from app.models.university import Group
+    from app.services.schedule_service import normalize_subject_name, resolve_day_of_week
+    from sqlalchemy import select as sa_select
+
+    def signature(rows):
+        sig = set()
+        for item in rows:
+            day = resolve_day_of_week(item.get("day"))
+            subject = normalize_subject_name(item.get("subject") or "")[0].lower()
+            if day and subject and item.get("start_time"):
+                sig.add((day.value, item["start_time"], subject))
+        return sig
+
+    new_sig = signature(lessons)
+    if len(new_sig) < 3:
+        return None
+    others = (await session.execute(
+        sa_select(Schedule).options(selectinload(Schedule.subject))
+        .where(Schedule.is_active == True, Schedule.group_id != user.group_id)
+    )).scalars().all()
+    by_group: dict = {}
+    for row in others:
+        if row.subject:
+            by_group.setdefault(row.group_id, set()).add((row.day_of_week.value, row.start_time, row.subject.name.lower()))
+    for group_id, sig in by_group.items():
+        union = new_sig | sig
+        if union and len(new_sig & sig) / len(union) >= 0.9:
+            group = await session.get(Group, group_id)
+            return group.name if group else "?"
+    return None
+
+
 async def process_schedule_input(
     message: Message,
     current_user: User,
@@ -388,8 +427,12 @@ async def process_schedule_input(
         group_mismatch = await _group_mismatch(session, current_user, lessons)
         if group_mismatch:
             await message.answer(t(lang, "group_mismatch", seen=esc(group_mismatch)), parse_mode="HTML")
+        lookalike = None if group_mismatch else await _lookalike_group(session, current_user, lessons)
+        if lookalike:
+            await message.answer(t(lang, "schedule_lookalike", group=esc(lookalike)), parse_mode="HTML")
         can_auto_approve = (
-            is_real_ai and not change_request and not group_mismatch and (is_admin or not existing_schedules)
+            is_real_ai and not change_request and not group_mismatch and not lookalike
+            and (is_admin or not existing_schedules)
         )
 
         if not can_auto_approve:
@@ -469,13 +512,37 @@ async def handle_reminder_settings_prompt(message: Message, current_user: User, 
     setting = await ScheduleService.get_or_create_reminder_setting(session, current_user.id)
     await state.set_state(ReminderStates.waiting_minutes)
     await message.answer(
-        t(lang, "reminder_prompt", time=format_minutes(setting.minutes_before, lang)),
+        _reminder_prompt_text(lang, setting),
         parse_mode="HTML",
-        reply_markup=reminder_minutes_keyboard(lang),
+        reply_markup=reminder_minutes_keyboard(lang, setting.is_enabled),
     )
 
 
-@router.callback_query(F.data.startswith("remind_"))
+def _reminder_prompt_text(lang: str, setting) -> str:
+    if not setting.is_enabled:
+        return t(lang, "reminder_prompt_off")
+    return t(lang, "reminder_prompt", time=format_minutes(setting.minutes_before, lang))
+
+
+@router.callback_query(F.data.in_({"remind_off", "remind_on"}))
+async def handle_reminder_toggle(query: CallbackQuery, state: FSMContext, current_user: User, session: AsyncSession):
+    """Eslatmani o'chirish / qayta yoqish: vaqt sozlamasi saqlanib qoladi"""
+    lang = lang_of(current_user)
+    enable = query.data == "remind_on"
+    setting = await ScheduleService.get_or_create_reminder_setting(session, current_user.id)
+    await ScheduleService.update_reminder_setting(
+        session, current_user.id, ReminderSettingUpdate(is_enabled=enable, minutes_before=setting.minutes_before)
+    )
+    await state.clear()
+    text = (
+        t(lang, "reminder_saved", time=format_minutes(setting.minutes_before, lang)) if enable
+        else t(lang, "reminder_turned_off")
+    )
+    await query.message.edit_text(text, parse_mode="HTML")
+    await query.answer()
+
+
+@router.callback_query(F.data.regexp(r"^remind_\d+$"))
 async def handle_reminder_minutes_button(query: CallbackQuery, state: FSMContext, current_user: User, session: AsyncSession):
     minutes = int(query.data.split("_")[-1])
     await state.clear()
@@ -517,7 +584,10 @@ async def handle_profile(message: Message, current_user: User, session: AsyncSes
         lines.append(t(lang, "profile_no_group"))
 
     setting = await ScheduleService.get_or_create_reminder_setting(session, current_user.id)
-    lines.append(t(lang, "profile_reminder", time=format_minutes(setting.minutes_before, lang)))
+    lines.append(
+        t(lang, "profile_reminder", time=format_minutes(setting.minutes_before, lang)) if setting.is_enabled
+        else t(lang, "profile_reminder_off")
+    )
     lines.append(t(lang, "profile_lang"))
 
     await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=profile_keyboard(lang))

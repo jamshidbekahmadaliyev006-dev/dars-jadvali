@@ -100,7 +100,7 @@ async def handle_language_prompt(message: Message, state: FSMContext, current_us
     await message.answer(t(lang_of(current_user), "choose_language"), reply_markup=language_keyboard())
 
 
-@router.callback_query(F.data.in_({"lang_uz", "lang_ru"}))
+@router.callback_query(F.data.in_({"lang_uz", "lang_ru", "lang_en"}))
 async def handle_language_choice(query: CallbackQuery, state: FSMContext, current_user: User, session: AsyncSession):
     lang = query.data.split("_")[-1]
     current_user.language_code = lang
