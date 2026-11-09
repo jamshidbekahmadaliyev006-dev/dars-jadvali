@@ -492,9 +492,16 @@ async def process_schedule_input(
             await message.answer(t(lang, "lessons_skipped", n=dropped), parse_mode="HTML")
 
         existing_schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
+        is_admin = current_user.role == UserRole.ADMIN
         # Namuna (mock) provayder natijasi hech qachon haqiqiy jadvalga yozilmaydi
         is_real_ai = not isinstance(get_ai_provider(), MockAIProvider)
-        if not is_real_ai:
+
+        # QOIDA:
+        #  - guruhning BIRINCHI jadvali (ro'yxatdan o'tishda): AI o'zi hal qiladi - aniq bo'lsa saqlanadi
+        #    (yuqorida aniq bo'lmasa rad etilgan);
+        #  - mavjud jadvalni O'ZGARTIRISH ("Jadval o'zgardi" yoki guruhda jadval bor): faqat ADMIN tasdiqlaydi.
+        is_change = bool(existing_schedules) or change_request
+        if not is_real_ai or (is_change and not is_admin):
             summary = format_counts(subject_count, len(lessons), lang)
             await loading_msg.edit_text(t(lang, "sent_to_review", summary=summary), parse_mode="HTML")
             await _notify_admins(
@@ -506,7 +513,7 @@ async def process_schedule_input(
 
         review = ScheduleSubmissionReview(
             status=SubmissionStatus.APPROVED,
-            admin_notes="Avtomatik tasdiqlandi (aniq va to'liq jadval)",
+            admin_notes="Avtomatik tasdiqlandi (guruhning birinchi jadvali / admin)",
         )
         await ScheduleService.review_submission(session, submission.id, current_user.id, review)
 

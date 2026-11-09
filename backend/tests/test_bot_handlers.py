@@ -487,8 +487,8 @@ async def test_university_spelling_variants_are_one_university(db_session: Async
 
 
 @pytest.mark.asyncio
-async def test_schedule_change_is_accepted_instantly_and_only_its_group_is_notified(db_session: AsyncSession, monkeypatch):
-    """Aniq va to'liq jadval admin tasdig'ini kutmasdan almashtiriladi; faqat shu guruhga xabar boradi"""
+async def test_schedule_change_waits_for_admin_and_old_schedule_stays(db_session: AsyncSession, monkeypatch):
+    """Mavjud jadvalni O'ZGARTIRISH admin tasdig'ini kutadi: eski jadval o'zgarmaydi, guruhga xabar ketmaydi"""
     from app.bot.handlers import user_menu
     from app.models.enums import SubmissionStatus
     from app.models.schedule import Schedule, ScheduleSubmission
@@ -536,14 +536,16 @@ async def test_schedule_change_is_accepted_instantly_and_only_its_group_is_notif
     await user_menu.process_schedule_input(msg, author, db_session, schedule_text=msg.text, change_request=True)
 
     sub = (await db_session.execute(sa_select(ScheduleSubmission))).scalars().first()
-    assert sub.status == SubmissionStatus.APPROVED                       # admin kutilmadi
-    names = {s.subject.name for s in await __import__("app.services.schedule_service", fromlist=["x"]).ScheduleService.get_schedules(db_session, group_id=mine.id)}
-    assert "Eski fan" not in names and "Fan 0" in names                  # eski jadval almashtirildi
-    notified = [c.kwargs.get("chat_id") for c in msg.bot.send_message.await_args_list]
-    assert 4243 in notified                                              # guruhdosh xabar oldi
-    assert 4244 not in notified and 4242 not in notified                 # boshqa guruh va muallifning o'zi - yo'q
-    # Tasdiqlash tugmali so'rov adminga ketmadi
-    assert not any(c.kwargs.get("reply_markup") is not None and c.kwargs.get("chat_id") == 1 for c in msg.bot.send_message.await_args_list)
+    assert sub.status == SubmissionStatus.ADMIN_REVIEW                   # admin tasdig'i kutilyapti
+    from app.services.schedule_service import ScheduleService
+    names = {x.subject.name for x in await ScheduleService.get_schedules(db_session, group_id=mine.id)}
+    assert names == {"Eski fan"}                                         # eski jadval o'zgarmadi
+    sent = msg.bot.send_message.await_args_list
+    to_admin = [c for c in sent if c.args and c.args[0] == 1 or c.kwargs.get("chat_id") == 1]
+    assert to_admin and to_admin[0].kwargs.get("reply_markup") is not None   # adminga tasdiqlash tugmalari bilan
+    notified = {c.kwargs.get("chat_id") for c in sent}
+    assert 4243 not in notified and 4244 not in notified                 # guruhga xabar tasdiqdan keyin ketadi
+
 
 
 

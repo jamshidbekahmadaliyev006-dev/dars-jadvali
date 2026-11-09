@@ -424,3 +424,53 @@ async def test_unclear_photo_is_not_saved_and_user_is_asked_for_a_sharper_one(db
     # Aniq rasm (1080 px, 5 kun): odatdagidek saqlanadi
     msg, loading = await send(1080, 2400)
     assert (await db_session.execute(sa_select(Schedule))).scalars().first() is not None
+
+
+@pytest.mark.asyncio
+async def test_first_schedule_of_a_group_is_decided_by_the_bot_instantly(db_session: AsyncSession, monkeypatch):
+    """Ro'yxatdan o'tishda (guruhda jadval yo'q): aniq va to'liq jadval admin kutmasdan saqlanadi"""
+    from app.bot.handlers import user_menu
+    from app.models.enums import SubmissionStatus
+    from app.models.schedule import ScheduleSubmission
+    from app.models.university import Faculty, Group, University
+    from sqlalchemy import select as sa_select
+
+    univ = University(name="TATU")
+    db_session.add(univ)
+    await db_session.commit()
+    fac = Faculty(name="KX", university_id=univ.id)
+    db_session.add(fac)
+    await db_session.commit()
+    grp = Group(name="712-24", university_id=univ.id, faculty_id=fac.id)
+    db_session.add(grp)
+    await db_session.commit()
+    student = User(telegram_id=5151, first_name="Yangi", role=UserRole.USER, university_id=univ.id,
+                   faculty_id=fac.id, group_id=grp.id, language_code="uz")
+    db_session.add(student)
+    await db_session.commit()
+
+    class RealAI:
+        async def extract_schedule_from_text(self, text):
+            from app.schemas.ai import ExtractedLessonItem, ExtractedScheduleResult
+            days = ["Dushanba", "Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma"]
+            return ExtractedScheduleResult(lessons=[
+                ExtractedLessonItem(day=d, subject=f"Fan {i}", start_time=f"{8 + i}:00", end_time=f"{9 + i}:00", room="A-1", building="A")
+                for i, d in enumerate(days)])
+
+    monkeypatch.setattr("app.services.ai_service.get_ai_provider", lambda: RealAI())
+    monkeypatch.setattr(user_menu, "get_ai_provider", lambda: RealAI())
+    monkeypatch.setattr(type(user_menu.settings), "admin_id_list", property(lambda self: [1]))
+
+    msg = _message("jadval", 5151)
+    msg.document = None
+    msg.answer = AsyncMock(return_value=MagicMock(edit_text=AsyncMock()))
+    await user_menu.process_schedule_input(msg, student, db_session, schedule_text="x")
+    sub = (await db_session.execute(sa_select(ScheduleSubmission))).scalars().first()
+    assert sub.status == SubmissionStatus.APPROVED
+
+    # AI o'zi tasdiqlagan bo'lsa ham admin ma'lumot oladi: kim yubordi, "Saqlandi", fanlar va darslar soni
+    info = [c for c in msg.bot.send_message.await_args_list if (c.args and c.args[0] == 1) or c.kwargs.get("chat_id") == 1]
+    assert info, "admin xabar olmadi"
+    text = info[0].args[1] if len(info[0].args) > 1 else info[0].kwargs.get("text")
+    assert "Saqlandi" in text and "Yangi" in text and "6 ta dars" in text
+    assert info[0].kwargs.get("reply_markup") is None          # faqat ma'lumot - tugma yo'q
