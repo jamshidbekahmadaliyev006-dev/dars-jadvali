@@ -66,3 +66,43 @@ async def send_submission_files(bot, chat_id: int, file_ids: List[str], caption:
         for index, fid in enumerate(file_ids[:MAX_ALBUM_FILES])
     ]
     await bot.send_media_group(chat_id=chat_id, media=media)
+
+
+def image_size(data: bytes):
+    """(kenglik, balandlik) yoki None. PNG, JPEG va WEBP sarlavhasidan o'qiladi - rasm to'liq ochilmaydi."""
+    import struct
+
+    try:
+        if data[:8] == b"\x89PNG\r\n\x1a\n":
+            return struct.unpack(">II", data[16:24])
+        if data[:2] == b"\xff\xd8":
+            i = 2
+            while i < len(data) - 9:
+                if data[i] != 0xFF:
+                    i += 1
+                    continue
+                marker = data[i + 1]
+                if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                    h, w = struct.unpack(">HH", data[i + 5:i + 9])
+                    return w, h
+                i += 2 + struct.unpack(">H", data[i + 2:i + 4])[0]
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            if data[12:16] == b"VP8X":
+                return 1 + int.from_bytes(data[24:27], "little"), 1 + int.from_bytes(data[27:30], "little")
+            if data[12:16] == b"VP8 ":
+                w, h = struct.unpack("<HH", data[26:30])
+                return w & 0x3FFF, h & 0x3FFF
+    except Exception:
+        return None
+    return None
+
+
+MIN_SIDE_FOR_SMALL_TEXT = 650  # qisqa tomoni shundan kichik rasmda mayda yozuvlar (xona, vaqt) ko'pincha xato o'qiladi
+
+
+def looks_too_small(images) -> bool:
+    for data in images:
+        size = image_size(data)
+        if size and min(size) < MIN_SIDE_FOR_SMALL_TEXT:
+            return True
+    return False

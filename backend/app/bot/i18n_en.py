@@ -350,4 +350,5 @@ EN = {
     'unblock_done': '✅ {who} has been unblocked.',
     'block_admin_refused': 'Cannot block an administrator.',
     'btn_block': '🚫 Block',
+    'schedule_blurry': '📷 <b>The photo looks small</b> - a room number or time may have been read incorrectly.\n\nPlease check the timetable. If something is wrong, resend it <b>closer and sharper</b>: zoom in on the table on your phone and take a screenshot, or send the image as a <b>file</b> (📎 → File).',
 }

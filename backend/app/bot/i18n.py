@@ -165,6 +165,10 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "uz": "👆 <b>Jadval #{id}</b> — {n} ta rasm. Tekshirib, qaror qiling:",
         "ru": "👆 <b>Расписание #{id}</b> — фото: {n}. Проверьте и решите:",
     },
+    "schedule_blurry": {
+        "uz": "📷 <b>Rasm mayda ko'rinyapti</b> - xona raqami yoki vaqt noto'g'ri o'qilgan bo'lishi mumkin."+NL+NL+"Jadvalni tekshiring. Xato bo'lsa, <b>yaqinroqdan, tiniqroq</b> qayta yuboring: jadvalni telefonda kattalashtirib skrinshot oling yoki rasmni <b>fayl</b> qilib yuboring (📎 → Fayl).",
+        "ru": "📷 <b>Фото выглядит мелким</b> - номер аудитории или время могли прочитаться неточно."+NL+NL+"Проверьте расписание. Если есть ошибки, отправьте <b>крупнее и чётче</b>: увеличьте таблицу на телефоне и сделайте скриншот или отправьте фото <b>файлом</b> (📎 → Файл).",
+    },
     "schedule_text_incomplete": {
         "uz": "✍️ Bu to'liq jadval emas. Kamida <b>3 ta dars</b> yozing (har qatorda kun, vaqt va fan) yoki jadval <b>rasmini</b> yuboring."+NL+NL+"<code>Dushanba 08:00-09:30 Matematika A-327</code>"+NL+"<code>Dushanba 09:30-11:00 Fizika A-210</code>"+NL+"<code>Seshanba 08:00-09:30 Ingliz tili B-105</code>",
         "ru": "✍️ Это не полное расписание. Напишите минимум <b>3 занятия</b> (в каждой строке день, время и предмет) или отправьте <b>фото</b> расписания."+NL+NL+"<code>Понедельник 08:00-09:30 Математика A-327</code>"+NL+"<code>Понедельник 09:30-11:00 Физика A-210</code>"+NL+"<code>Вторник 08:00-09:30 Английский B-105</code>",

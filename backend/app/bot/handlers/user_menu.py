@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.handlers.registration import start_registration
-from app.bot.album import collect_album, pack_file_ids, send_submission_files
+from app.bot.album import collect_album, looks_too_small, pack_file_ids, send_submission_files
 from app.bot.i18n import NL, DAY_LABELS, STATUS_LABELS, format_counts, format_minutes, labels, lang_of, t
 from app.bot.keyboards.inline import (
     admin_review_keyboard,
@@ -402,6 +402,11 @@ async def process_schedule_input(
 
         # O'qilgan jadvaldagi kamchiliklarni talabaga aniq aytamiz: qaysi dars, nima xato
         issues = schedule_issues(lessons, lang, from_image=bool(file_id))
+        # Rasm kichik/xira yoki natija yomon (xona/vaqt ko'p yetishmaydi) - tiniqroq yuborishni so'raymiz
+        no_room = sum(1 for item in lessons if not item.get("room"))
+        poor = bool(file_id) and (looks_too_small(images) or (len(lessons) >= 4 and no_room * 2 >= len(lessons)))
+        if poor:
+            await message.answer(t(lang, "schedule_blurry"), parse_mode="HTML")
         if issues:
             shown = issues[:10]
             if len(issues) > 10:

@@ -129,3 +129,18 @@ async def test_incomplete_text_after_registration_is_not_treated_as_schedule(db_
     await registration.process_schedule_text(msg, state, user, db_session)
     assert "to'liq jadval emas" in msg.answer.call_args.args[0]
     state.clear.assert_not_awaited()  # holat saqlandi - rasm yoki to'liq matn yuborish mumkin
+
+
+def test_small_images_are_detected_without_a_graphics_library():
+    import struct, zlib
+    from app.bot.album import image_size, looks_too_small
+
+    def png(w, h):
+        def chunk(tag, data):
+            return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IEND", b"")
+
+    assert image_size(png(572, 1280)) == (572, 1280)
+    assert looks_too_small([png(572, 1280)]) is True      # tor skrinshot - mayda yozuv
+    assert looks_too_small([png(1080, 1920)]) is False
+    assert looks_too_small([b"not an image"]) is False
