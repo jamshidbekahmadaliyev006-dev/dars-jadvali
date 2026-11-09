@@ -300,6 +300,13 @@ class ScheduleService:
                     ).strip()
                     await session.commit()
 
+        # Qaror qabul qilindi: rasmga havola endi kerak emas (rasm Telegram'da turadi, bizda faqat nom).
+        # Kerakli ma'lumot - darslar - "schedules" jadvalida saqlangan.
+        if submission.status in (SubmissionStatus.APPROVED, SubmissionStatus.REJECTED):
+            submission.image_file_id = "-"
+            submission.image_url = None
+            await session.commit()
+
         await session.refresh(submission)
         return submission
 
