@@ -69,7 +69,7 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "btn_groups": {"uz": "👥 Guruhlar", "ru": "👥 Группы"},
     "btn_users": {"uz": "👤 Foydalanuvchilar", "ru": "👤 Пользователи"},
     "btn_announce": {"uz": "📢 E'lon yuborish", "ru": "📢 Отправить объявление"},
-    "btn_student_view": {"uz": "🎓 Talaba ko'rinishiga o'tish", "ru": "🎓 Меню студента"},
+    "btn_student_view": {"uz": "🎓 Talaba rejimi", "ru": "🎓 Режим студента"},
     "btn_admin_back": {"uz": "🛠 Admin paneliga qaytish", "ru": "🛠 Вернуться в админ-панель"},
     # Inline tugmalar
     "btn_approve": {"uz": "✅ Tasdiqlash", "ru": "✅ Подтвердить"},
@@ -425,6 +425,7 @@ LEGACY_LABELS: Dict[str, Set[str]] = {
     "btn_reminder": {"⏰ Eslatma sozlamalari", "⏰ Напоминания"},
     "btn_profile": {"👤 Profilim"},
     "btn_new_shots": {"📥 Yangi screenshotlar", "📥 Новые расписания"},
+    "btn_student_view": {"🎓 Talaba ko'rinishiga o'tish", "🎓 Меню студента"},
 }
 
 

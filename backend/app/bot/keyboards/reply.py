@@ -22,6 +22,6 @@ def get_admin_main_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     keyboard = [
         [_button(lang, "btn_stats"), _button(lang, "btn_users")],
         [_button(lang, "btn_new_shots"), _button(lang, "btn_announce")],
-        [_button(lang, "btn_language")],
+        [_button(lang, "btn_student_view"), _button(lang, "btn_language")],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)

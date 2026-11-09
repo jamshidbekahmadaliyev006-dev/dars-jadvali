@@ -530,3 +530,22 @@ async def test_schedule_change_always_goes_to_admin_review(db_session: AsyncSess
     sent = msg.bot.send_message.await_args
     buttons = [b.callback_data for row in sent.kwargs["reply_markup"].inline_keyboard for b in row]
     assert buttons == [f"approve_sub_{sub.id}", f"reject_sub_{sub.id}"]
+
+
+async def test_admin_has_both_roles_student_mode_and_back():
+    from app.bot.handlers.admin_menu import handle_switch_back_to_admin, handle_switch_to_student_view
+    from app.bot.keyboards.reply import get_admin_main_keyboard
+
+    admin_kb = [b.text for row in get_admin_main_keyboard("uz").keyboard for b in row]
+    assert "🎓 Talaba rejimi" in admin_kb
+
+    admin = User(id=9, telegram_id=9009, first_name="A", role=UserRole.ADMIN, language_code="uz")
+    msg = make_mock_message("🎓 Talaba rejimi", 9009)
+    await handle_switch_to_student_view(msg, current_user=admin)
+    student_kb = [b.text for row in msg.answer.call_args.kwargs["reply_markup"].keyboard for b in row]
+    assert "📅 Dars jadvali" in student_kb and "🛠 Admin paneliga qaytish" in student_kb
+
+    msg = make_mock_message("🛠 Admin paneliga qaytish", 9009)
+    await handle_switch_back_to_admin(msg, current_user=admin)
+    back_kb = [b.text for row in msg.answer.call_args.kwargs["reply_markup"].keyboard for b in row]
+    assert "📈 Statistika" in back_kb
