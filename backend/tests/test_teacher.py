@@ -357,3 +357,40 @@ def test_group_key_keeps_number_boundaries():
     assert group_key("712-24") == group_key("712_24") == group_key("712 24") == group_key("712/24")
     assert group_key("7-12") != group_key("712")
     assert group_key("71224") != group_key("712-24")
+
+
+@pytest.mark.asyncio
+async def test_admin_receives_all_photos_of_an_album_with_review_buttons(db_session: AsyncSession, monkeypatch):
+    from app.bot.handlers import user_menu
+
+    student = User(telegram_id=5200, first_name="Farrux", username="farrux", role=UserRole.USER, language_code="uz")
+    db_session.add(student)
+    await db_session.commit()
+    monkeypatch.setattr(type(user_menu.settings), "admin_id_list", property(lambda self: [900]))
+
+    msg = _message("", 5200)
+    msg.document = None
+    msg.bot.send_media_group = AsyncMock()
+    await user_menu._notify_admins(
+        msg, db_session, student, 20, "f1", needs_review=True, subject_count=6, lesson_count=15,
+        file_ids=["f1", "f2", "f3"],
+    )
+
+    media = msg.bot.send_media_group.call_args.kwargs["media"]
+    assert [m.media for m in media] == ["f1", "f2", "f3"]       # uchala rasm adminga ketdi
+    assert media[0].caption and media[1].caption is None        # sarlavha faqat birinchisida
+    buttons_call = msg.bot.send_message.call_args
+    buttons = [b.callback_data for row in buttons_call.kwargs["reply_markup"].inline_keyboard for b in row]
+    assert buttons == ["approve_sub_20", "reject_sub_20"] and "3" in buttons_call.args[1]
+
+
+def test_file_ids_pack_and_unpack_without_cutting_ids():
+    from app.bot.album import pack_file_ids, unpack_file_ids
+
+    ids = [f"AgACAgIAAxkBAAI{i:03d}" + "x" * 80 for i in range(10)]
+    packed = pack_file_ids(ids)
+    assert len(packed) <= 500
+    restored = unpack_file_ids(packed)
+    assert restored == ids[: len(restored)] and len(restored) >= 4
+    assert unpack_file_ids(None, "single") == ["single"]
+    assert unpack_file_ids("text:salom", "text") == []

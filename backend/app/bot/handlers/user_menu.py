@@ -13,8 +13,8 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.handlers.registration import start_registration
-from app.bot.album import collect_album
-from app.bot.i18n import DAY_LABELS, STATUS_LABELS, format_counts, format_minutes, labels, lang_of, t
+from app.bot.album import collect_album, pack_file_ids, send_submission_files
+from app.bot.i18n import NL, DAY_LABELS, STATUS_LABELS, format_counts, format_minutes, labels, lang_of, t
 from app.bot.keyboards.inline import (
     admin_review_keyboard,
     language_keyboard,
@@ -204,8 +204,11 @@ async def _notify_admins(
     subject_count: int = 0,
     lesson_count: int = 0,
     needs_review: bool = False,
+    file_ids: Optional[List[str]] = None,
+    is_document: bool = False,
 ) -> None:
-    """Talaba yuborgan rasmni natijasi bilan adminlarga, har biriga o'z tilida yuboradi"""
+    """Talaba yuborgan BARCHA rasmlarni natijasi bilan adminlarga, har biriga o'z tilida yuboradi"""
+    file_ids = file_ids or ([file_id] if file_id and file_id != "text" else [])
     username = f" (@{esc(student.username)})" if student.username else ""
 
     for admin_id in settings.admin_id_list:
@@ -219,7 +222,14 @@ async def _notify_admins(
             lines.append(f"📚 {format_counts(subject_count, lesson_count, admin_lang)}")
         markup = admin_review_keyboard(submission_id, admin_lang) if needs_review else None
         try:
-            if file_id and file_id != "text" and message.document:
+            if len(file_ids) > 1:
+                await send_submission_files(message.bot, admin_id, file_ids, NL.join(lines), is_document or bool(message.document))
+                if markup:  # albom ostiga tugma qo'yib bo'lmaydi - alohida xabar
+                    await message.bot.send_message(
+                        admin_id, t(admin_lang, "review_buttons", id=submission_id, n=len(file_ids)),
+                        parse_mode="HTML", reply_markup=markup,
+                    )
+            elif file_id and file_id != "text" and message.document:
                 await message.bot.send_document(
                     chat_id=admin_id, document=file_id, caption="\n".join(lines), parse_mode="HTML", reply_markup=markup,
                 )
@@ -311,7 +321,7 @@ async def process_schedule_input(
         faculty_id=current_user.faculty_id,
         group_id=current_user.group_id,
         image_file_id=file_id or "text",
-        image_url=(",".join(f"tg://file/{f}" for f in file_ids)[:500]) if file_ids else f"text:{(schedule_text or '')[:480]}",
+        image_url=pack_file_ids(file_ids) if file_ids else f"text:{(schedule_text or '')[:480]}",
     )
     submission = await ScheduleService.create_submission(session, current_user.id, payload)
 
@@ -343,7 +353,10 @@ async def process_schedule_input(
 
         if processed.status != SubmissionStatus.ADMIN_REVIEW or not lessons:
             await loading_msg.edit_text(t(lang, "read_failed"), parse_mode="HTML")
-            await _notify_admins(message, session, current_user, submission.id, file_id, "admin_read_failed")
+            await _notify_admins(
+                message, session, current_user, submission.id, file_id, "admin_read_failed",
+                file_ids=file_ids, is_document=is_document,
+            )
             return
 
         subject_count = len({normalize_subject_name(item.get("subject") or "")[0].lower() for item in lessons})
@@ -385,6 +398,7 @@ async def process_schedule_input(
             await _notify_admins(
                 message, session, current_user, submission.id, file_id,
                 subject_count=subject_count, lesson_count=len(lessons), needs_review=True,
+                file_ids=file_ids, is_document=is_document,
             )
             return
 
@@ -411,6 +425,7 @@ async def process_schedule_input(
         await _notify_admins(
             message, session, current_user, submission.id, file_id, "admin_saved",
             subject_count=subject_count, lesson_count=len(lessons),
+            file_ids=file_ids, is_document=is_document,
         )
     except Exception as e:
         logger.error(f"Error processing schedule submission: {e}")

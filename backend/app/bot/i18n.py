@@ -144,6 +144,10 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "ru": "«{a}» и «{b}» пересекаются по времени",
     },
     "btn_schedule_changed": {"uz": "🔄 Jadval o'zgardi", "ru": "🔄 Расписание изменилось"},
+    "review_buttons": {
+        "uz": "👆 <b>Jadval #{id}</b> — {n} ta rasm. Tekshirib, qaror qiling:",
+        "ru": "👆 <b>Расписание #{id}</b> — фото: {n}. Проверьте и решите:",
+    },
     "group_mismatch": {
         "uz": "⚠️ Rasmda boshqa guruh ko'rinyapti: <b>{seen}</b>. Jadval admin tekshiruvidan keyin saqlanadi.",
         "ru": "⚠️ На фото другая группа: <b>{seen}</b>. Расписание сохранится после проверки админом.",

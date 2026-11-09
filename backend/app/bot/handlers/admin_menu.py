@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from app.bot.album import send_submission_files, unpack_file_ids
 from app.bot.i18n import NL, format_counts, labels, lang_of, t
 from app.bot.keyboards.inline import admin_review_keyboard, announcement_confirm_keyboard
 from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
@@ -186,8 +187,15 @@ async def _send_next_submission(message: Message, session: AsyncSession, lang: s
     caption = _submission_caption(sub, student, group, len(subs), lang)
     keyboard = admin_review_keyboard(sub.id, lang)
 
+    file_ids = unpack_file_ids(sub.image_url, sub.image_file_id)
     try:
-        await message.answer_photo(sub.image_file_id, caption=caption, parse_mode="HTML", reply_markup=keyboard)
+        if len(file_ids) > 1:
+            await send_submission_files(message.bot, message.chat.id, file_ids, caption, as_document=False)
+            await message.answer(
+                t(lang, "review_buttons", id=sub.id, n=len(file_ids)), parse_mode="HTML", reply_markup=keyboard
+            )
+        else:
+            await message.answer_photo(sub.image_file_id, caption=caption, parse_mode="HTML", reply_markup=keyboard)
     except Exception as e:
         # API orqali yuklangan rasmlarning Telegram file_id'si yo'q
         logger.warning(f"Submission {sub.id} photo unavailable: {e}")

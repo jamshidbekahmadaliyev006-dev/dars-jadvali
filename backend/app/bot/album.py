@@ -31,3 +31,38 @@ async def collect_album(message: Message, file_id: str) -> Optional[List[str]]:
     _ALBUMS[key] = [file_id]
     await asyncio.sleep(ALBUM_WAIT_SECONDS)
     return _ALBUMS.pop(key, [file_id])
+
+
+_URL_PREFIX = "tg://file/"
+_URL_LIMIT = 500  # schedule_submissions.image_url ustuni uzunligi
+
+
+def pack_file_ids(file_ids: List[str]) -> str:
+    """image_url uchun: faqat to'liq sig'adigan file_id'lar (kesilgan id buzuq bo'lardi)"""
+    packed = ""
+    for fid in file_ids:
+        piece = _URL_PREFIX + fid
+        candidate = f"{packed},{piece}" if packed else piece
+        if len(candidate) > _URL_LIMIT:
+            break
+        packed = candidate
+    return packed
+
+
+def unpack_file_ids(image_url: Optional[str], fallback: Optional[str] = None) -> List[str]:
+    ids = [p[len(_URL_PREFIX):] for p in (image_url or "").split(",") if p.startswith(_URL_PREFIX)]
+    if not ids and fallback and fallback != "text" and not fallback.startswith("file_"):
+        ids = [fallback]
+    return ids
+
+
+async def send_submission_files(bot, chat_id: int, file_ids: List[str], caption: str, as_document: bool = False) -> None:
+    """Bir nechta rasm/faylni bitta albom qilib yuboradi (sarlavha birinchisida)"""
+    from aiogram.types import InputMediaDocument, InputMediaPhoto
+
+    media_cls = InputMediaDocument if as_document else InputMediaPhoto
+    media = [
+        media_cls(media=fid, caption=caption if index == 0 else None, parse_mode="HTML" if index == 0 else None)
+        for index, fid in enumerate(file_ids[:MAX_ALBUM_FILES])
+    ]
+    await bot.send_media_group(chat_id=chat_id, media=media)
