@@ -486,12 +486,13 @@ async def test_university_spelling_variants_are_one_university(db_session: Async
     assert "Kiberxavfsizlik" in names
 
 
-async def test_schedule_change_always_goes_to_admin_review(db_session: AsyncSession, monkeypatch):
-    """'Jadval o'zgardi' orqali kelgan jadval admin bo'lsa ham o'zi saqlanmaydi"""
+@pytest.mark.asyncio
+async def test_schedule_change_is_accepted_instantly_and_only_its_group_is_notified(db_session: AsyncSession, monkeypatch):
+    """Aniq va to'liq jadval admin tasdig'ini kutmasdan almashtiriladi; faqat shu guruhga xabar boradi"""
     from app.bot.handlers import user_menu
     from app.models.enums import SubmissionStatus
-    from app.models.schedule import ScheduleSubmission
-    from app.models.university import Faculty, Group, University
+    from app.models.schedule import Schedule, ScheduleSubmission
+    from app.models.university import Faculty, Group, Subject, University
     from sqlalchemy import select as sa_select
 
     univ = University(name="TATU")
@@ -500,37 +501,50 @@ async def test_schedule_change_always_goes_to_admin_review(db_session: AsyncSess
     fac = Faculty(name="KX", university_id=univ.id)
     db_session.add(fac)
     await db_session.commit()
-    grp = Group(name="712-24", university_id=univ.id, faculty_id=fac.id)
-    db_session.add(grp)
+    mine = Group(name="712-24", university_id=univ.id, faculty_id=fac.id)
+    other = Group(name="732-24", university_id=univ.id, faculty_id=fac.id)
+    old_subject = Subject(name="Eski fan", university_id=univ.id)
+    db_session.add_all([mine, other, old_subject])
     await db_session.commit()
-    admin = User(telegram_id=4242, first_name="Admin", role=UserRole.ADMIN, university_id=univ.id,
-                 faculty_id=fac.id, group_id=grp.id, language_code="uz")
-    db_session.add(admin)
+    author = User(telegram_id=4242, first_name="Muallif", role=UserRole.USER, university_id=univ.id,
+                  faculty_id=fac.id, group_id=mine.id, language_code="uz")
+    mate = User(telegram_id=4243, first_name="Guruhdosh", role=UserRole.USER, group_id=mine.id, language_code="uz")
+    stranger = User(telegram_id=4244, first_name="Boshqa", role=UserRole.USER, group_id=other.id, language_code="uz")
+    db_session.add_all([author, mate, stranger])
+    await db_session.commit()
+    from app.models.enums import DayOfWeek, LessonType
+    db_session.add(Schedule(university_id=univ.id, group_id=mine.id, subject_id=old_subject.id, day_of_week=DayOfWeek.MONDAY,
+                            start_time="08:00", end_time="09:00", lesson_type=LessonType.LECTURE))
     await db_session.commit()
 
-    class RealAI:  # Mock emas - avtomatik tasdiqlash shartini sinash uchun
+    class RealAI:
         async def extract_schedule_from_text(self, text):
             from app.schemas.ai import ExtractedLessonItem, ExtractedScheduleResult
+            days = ["Dushanba", "Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma"]
             return ExtractedScheduleResult(lessons=[
-                ExtractedLessonItem(day=day, subject=f"Fan {i}", start_time=f"{8 + i}:00", end_time=f"{9 + i}:00", room="A-1", building="A")
-                for i, day in enumerate(["Dushanba", "Dushanba", "Seshanba", "Seshanba", "Chorshanba", "Payshanba"])])
+                ExtractedLessonItem(day=d, subject=f"Fan {i}", start_time=f"{8 + i}:00", end_time=f"{9 + i}:00", room="A-1", building="A")
+                for i, d in enumerate(days)])
 
     monkeypatch.setattr("app.services.ai_service.get_ai_provider", lambda: RealAI())
     monkeypatch.setattr(user_menu, "get_ai_provider", lambda: RealAI())
-    monkeypatch.setattr(type(user_menu.settings), "admin_id_list", property(lambda self: [4242]))
+    monkeypatch.setattr(type(user_menu.settings), "admin_id_list", property(lambda self: [1]))
 
-    msg = make_mock_message("Dushanba 08:00-09:30 Matematika A-1", 4242)
+    msg = make_mock_message("Dushanba 08:00 ...", 4242)
     msg.answer = AsyncMock(return_value=MagicMock(edit_text=AsyncMock()))
     msg.bot = MagicMock(send_message=AsyncMock(), send_chat_action=AsyncMock(), send_photo=AsyncMock())
     msg.document = None
-    await user_menu.process_schedule_input(msg, admin, db_session, schedule_text=msg.text, change_request=True)
+    await user_menu.process_schedule_input(msg, author, db_session, schedule_text=msg.text, change_request=True)
 
     sub = (await db_session.execute(sa_select(ScheduleSubmission))).scalars().first()
-    assert sub.status == SubmissionStatus.ADMIN_REVIEW  # saqlanmadi, tasdiq kutyapti
-    # Admin o'zi yuborgan bo'lsa ham tasdiqlash tugmalari o'ziga keldi
-    sent = msg.bot.send_message.await_args
-    buttons = [b.callback_data for row in sent.kwargs["reply_markup"].inline_keyboard for b in row]
-    assert buttons == [f"approve_sub_{sub.id}", f"reject_sub_{sub.id}"]
+    assert sub.status == SubmissionStatus.APPROVED                       # admin kutilmadi
+    names = {s.subject.name for s in await __import__("app.services.schedule_service", fromlist=["x"]).ScheduleService.get_schedules(db_session, group_id=mine.id)}
+    assert "Eski fan" not in names and "Fan 0" in names                  # eski jadval almashtirildi
+    notified = [c.kwargs.get("chat_id") for c in msg.bot.send_message.await_args_list]
+    assert 4243 in notified                                              # guruhdosh xabar oldi
+    assert 4244 not in notified and 4242 not in notified                 # boshqa guruh va muallifning o'zi - yo'q
+    # Tasdiqlash tugmali so'rov adminga ketmadi
+    assert not any(c.kwargs.get("reply_markup") is not None and c.kwargs.get("chat_id") == 1 for c in msg.bot.send_message.await_args_list)
+
 
 
 async def test_admin_has_both_roles_student_mode_and_back():

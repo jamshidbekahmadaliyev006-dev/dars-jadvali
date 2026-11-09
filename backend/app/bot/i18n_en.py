@@ -185,4 +185,7 @@ EN = {
     'lessons_skipped': '⚠️ {n} lesson(s) could not be read (day or time unclear). Resend the timetable if needed.',
     'faculty_write_full': '✍️ Write the faculty name <b>in full</b> (no abbreviations).\nFor example: Cybersecurity, Software Engineering, Economics',
     'schedule_unclear': '📷 <b>The photo is not clear</b> - small text (rooms, times) could not be read reliably, so the timetable was <b>not saved</b> (to avoid entering wrong data).\n\nPlease send a <b>sharp</b> photo: zoom in on your phone so the table alone fills the screen and take a screenshot. Or send the image as a <b>file</b> (📎 → File).',
+    'group_mismatch': '⚠️ The photo shows another group: <b>{seen}</b>, so the timetable was <b>not saved</b>.\nPlease send your own group timetable.',
+    'schedule_lookalike': '⚠️ This timetable is identical to group <b>{group}</b>, so it was <b>not saved</b>.\nPlease send your own group timetable.',
+    'group_schedule_replaced': '📅 The timetable of group <b>{group}</b> has been updated.\nSee: 📅 Timetable',
 }

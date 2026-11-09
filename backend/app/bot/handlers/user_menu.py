@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import asyncio
 import json
 import re
 import time
@@ -14,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.handlers.registration import start_registration
-from app.bot.album import collect_album, pack_file_ids, send_submission_files, too_small_for_lessons
+from app.bot.album import collect_album, looks_too_small, pack_file_ids, send_submission_files, too_small_for_lessons
 from app.bot.i18n import NL, format_lesson_count, DAY_LABELS, STATUS_LABELS, format_counts, format_minutes, labels, lang_of, t
 from app.bot.keyboards.inline import (
     admin_review_keyboard,
@@ -344,6 +345,24 @@ async def _lookalike_group(session: AsyncSession, user: User, lessons: List[dict
     return None
 
 
+async def _notify_group_replaced(bot, session: AsyncSession, author: User) -> None:
+    """Jadval yangilangani haqida FAQAT shu guruhning boshqa a'zolariga xabar"""
+    from app.bot.sender import safe_send
+    from app.models.university import Group
+
+    group = await session.get(Group, author.group_id)
+    members = (await session.execute(
+        select(User).where(User.group_id == author.group_id, User.is_active == True, User.id != author.id)
+    )).scalars().all()
+    for member in members:
+        await safe_send(
+            bot, member.telegram_id,
+            t(lang_of(member), "group_schedule_replaced", group=esc(group.name if group else "")),
+            parse_mode="HTML",
+        )
+        await asyncio.sleep(0.05)
+
+
 async def process_schedule_input(
     message: Message,
     current_user: User,
@@ -441,33 +460,41 @@ async def process_schedule_input(
             if not resolve_day_of_week(item.get("day")) or not item.get("start_time") or not item.get("end_time")
         )
         no_room = sum(1 for item in lessons if not item.get("room"))
-        poor = bool(file_id) and len(lessons) >= 4 and no_room * 2 >= len(lessons)
-        if poor:
-            await message.answer(t(lang, "schedule_blurry"), parse_mode="HTML")
-        elif dropped:
-            await message.answer(t(lang, "lessons_skipped", n=dropped), parse_mode="HTML")
+        tiny_image = bool(images) and looks_too_small(images)
 
-        # Avtomatik tasdiqlash faqat guruhning birinchi jadvali yoki admin uchun: aks holda
-        # istalgan a'zo rasm yuborib, butun guruh jadvalini tekshiruvsiz almashtirib qo'yardi.
-        existing_schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
-        is_admin = current_user.role == UserRole.ADMIN
-        # Namuna (mock) provayder natijasi hech qachon haqiqiy jadvalga yozilmaydi
-        is_real_ai = not isinstance(get_ai_provider(), MockAIProvider)
-        # "Jadval o'zgardi" orqali kelgan jadval hech qachon o'zi saqlanmaydi - faqat admin tasdiqlaydi
-        # Rasmda boshqa guruh nomi yozilgan bo'lsa (masalan talaba do'stining jadvalini yuborsa) -
-        # jadval o'zi saqlanmaydi, admin ko'rib chiqadi
+        async def reject(key: str, **kwargs) -> None:
+            """Qaror botda: jadval SAQLANMAYDI, adminni kutmaymiz - odamga nima qilish kerakligi aytiladi"""
+            processed.status = SubmissionStatus.NEEDS_CORRECTION
+            processed.image_file_id = "-"
+            processed.image_url = None
+            await session.commit()
+            await loading_msg.edit_text(t(lang, key, **kwargs), parse_mode="HTML")
+
+        # O'qib bo'lmadi: ko'p dars noaniq (kun/vaqt) yoki kichik rasmda xonalarning ko'pi yo'q - tiniq rasm so'raladi
+        unreadable = len(lessons) >= 4 and (
+            dropped * 4 >= len(lessons) or (tiny_image and no_room * 10 >= len(lessons) * 6)
+        )
+        if unreadable:
+            await reject("schedule_unclear")
+            return
+
+        # Rasmda boshqa guruh nomi yoki boshqa guruhning aynan o'sha jadvali: saqlanmaydi, to'g'ri jadval so'raladi
         group_mismatch = await _group_mismatch(session, current_user, lessons)
         if group_mismatch:
-            await message.answer(t(lang, "group_mismatch", seen=esc(group_mismatch)), parse_mode="HTML")
-        lookalike = None if group_mismatch else await _lookalike_group(session, current_user, lessons)
+            await reject("group_mismatch", seen=esc(group_mismatch))
+            return
+        lookalike = await _lookalike_group(session, current_user, lessons)
         if lookalike:
-            await message.answer(t(lang, "schedule_lookalike", group=esc(lookalike)), parse_mode="HTML")
-        can_auto_approve = (
-            is_real_ai and not change_request and not group_mismatch and not lookalike
-            and (is_admin or not existing_schedules)
-        )
+            await reject("schedule_lookalike", group=esc(lookalike))
+            return
 
-        if not can_auto_approve:
+        if dropped:
+            await message.answer(t(lang, "lessons_skipped", n=dropped), parse_mode="HTML")
+
+        existing_schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
+        # Namuna (mock) provayder natijasi hech qachon haqiqiy jadvalga yozilmaydi
+        is_real_ai = not isinstance(get_ai_provider(), MockAIProvider)
+        if not is_real_ai:
             summary = format_counts(subject_count, len(lessons), lang)
             await loading_msg.edit_text(t(lang, "sent_to_review", summary=summary), parse_mode="HTML")
             await _notify_admins(
@@ -479,9 +506,13 @@ async def process_schedule_input(
 
         review = ScheduleSubmissionReview(
             status=SubmissionStatus.APPROVED,
-            admin_notes="Avtomatik tasdiqlandi (guruh uchun birinchi jadval / admin)",
+            admin_notes="Avtomatik tasdiqlandi (aniq va to'liq jadval)",
         )
         await ScheduleService.review_submission(session, submission.id, current_user.id, review)
+
+        # Guruhning eski jadvali almashtirilgan bo'lsa - guruhdoshlarga xabar (faqat shu guruhga)
+        if existing_schedules:
+            await _notify_group_replaced(message.bot, session, current_user)
 
         schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
         setting = await ScheduleService.get_or_create_reminder_setting(session, current_user.id)

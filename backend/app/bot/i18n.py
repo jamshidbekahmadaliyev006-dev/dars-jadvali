@@ -165,6 +165,18 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "uz": "👆 <b>Jadval #{id}</b> — {n} ta rasm. Tekshirib, qaror qiling:",
         "ru": "👆 <b>Расписание #{id}</b> — фото: {n}. Проверьте и решите:",
     },
+    "group_mismatch": {
+        "uz": "⚠️ Rasmda boshqa guruh ko'rinyapti: <b>{seen}</b>, shuning uchun jadval <b>saqlanmadi</b>."+NL+"O'zingizning guruhingiz jadvalini yuboring.",
+        "ru": "⚠️ На фото другая группа: <b>{seen}</b>, поэтому расписание <b>не сохранено</b>."+NL+"Отправьте расписание своей группы.",
+    },
+    "schedule_lookalike": {
+        "uz": "⚠️ Bu jadval <b>{group}</b> guruhining jadvaliga aynan o'xshaydi, shuning uchun <b>saqlanmadi</b>."+NL+"O'zingizning guruhingiz jadvalini yuboring.",
+        "ru": "⚠️ Это расписание полностью совпадает с расписанием группы <b>{group}</b>, поэтому <b>не сохранено</b>."+NL+"Отправьте расписание своей группы.",
+    },
+    "group_schedule_replaced": {
+        "uz": "📅 <b>{group}</b> guruhining dars jadvali yangilandi."+NL+"Ko'rish: 📅 Dars jadvali",
+        "ru": "📅 Расписание группы <b>{group}</b> обновлено."+NL+"Смотреть: 📅 Расписание",
+    },
     "schedule_unclear": {
         "uz": "📷 <b>Rasm aniq emas</b> - mayda yozuvlar (xona, vaqt) ishonchli o'qilmadi, shuning uchun jadval <b>saqlanmadi</b> (noto'g'ri ma'lumot kiritmaslik uchun)."+NL+NL+"Iltimos, <b>tiniq</b> rasm yuboring: jadvalni telefonda kattalashtiring, faqat jadvalning o'zi ekranni to'ldirsin va skrinshot oling. Yoki rasmni <b>fayl</b> qilib yuboring (📎 → Fayl).",
         "ru": "📷 <b>Фото нечёткое</b> - мелкий текст (аудитории, время) не удалось прочитать надёжно, поэтому расписание <b>не сохранено</b> (чтобы не вносить неверные данные)."+NL+NL+"Пожалуйста, отправьте <b>чёткое</b> фото: увеличьте расписание на телефоне, чтобы одна таблица занимала весь экран, и сделайте скриншот. Или отправьте фото <b>файлом</b> (📎 → Файл).",
@@ -184,14 +196,6 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "schedule_text_incomplete": {
         "uz": "✍️ Bu to'liq jadval emas. Kamida <b>3 ta dars</b> yozing (har qatorda kun, vaqt va fan) yoki jadval <b>rasmini</b> yuboring."+NL+NL+"<code>Dushanba 08:00-09:30 Matematika A-327</code>"+NL+"<code>Dushanba 09:30-11:00 Fizika A-210</code>"+NL+"<code>Seshanba 08:00-09:30 Ingliz tili B-105</code>",
         "ru": "✍️ Это не полное расписание. Напишите минимум <b>3 занятия</b> (в каждой строке день, время и предмет) или отправьте <b>фото</b> расписания."+NL+NL+"<code>Понедельник 08:00-09:30 Математика A-327</code>"+NL+"<code>Понедельник 09:30-11:00 Физика A-210</code>"+NL+"<code>Вторник 08:00-09:30 Английский B-105</code>",
-    },
-    "schedule_lookalike": {
-        "uz": "⚠️ Bu jadval <b>{group}</b> guruhining jadvaliga aynan o'xshaydi. Guruhingiz to'g'riligini admin tekshiradi.",
-        "ru": "⚠️ Это расписание полностью совпадает с расписанием группы <b>{group}</b>. Админ проверит, что оно ваше.",
-    },
-    "group_mismatch": {
-        "uz": "⚠️ Rasmda boshqa guruh ko'rinyapti: <b>{seen}</b>. Jadval admin tekshiruvidan keyin saqlanadi.",
-        "ru": "⚠️ На фото другая группа: <b>{seen}</b>. Расписание сохранится после проверки админом.",
     },
     "schedule_change_prompt": {
         "uz": "🔄 <b>Jadval o'zgardimi?</b>"+NL+"Yangi jadval rasmini yoki matnini yuboring.",
