@@ -64,7 +64,7 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "btn_send": {"uz": "📤 Jadval yuborish", "ru": "📤 Отправить расписание"},
     "btn_language": {"uz": "🌐 Til", "ru": "🌐 Язык"},
     "btn_status": {"uz": "📊 Jadval holati", "ru": "📊 Статус расписания"},
-    "btn_new_shots": {"uz": "📥 Yangi screenshotlar", "ru": "📥 Новые расписания"},
+    "btn_new_shots": {"uz": "📥 Jadvallar", "ru": "📥 Расписания"},
     "btn_stats": {"uz": "📈 Statistika", "ru": "📈 Статистика"},
     "btn_groups": {"uz": "👥 Guruhlar", "ru": "👥 Группы"},
     "btn_users": {"uz": "👤 Foydalanuvchilar", "ru": "👤 Пользователи"},
@@ -157,11 +157,11 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "file_too_big": {"uz": "❗ Fayl juda katta (15 MB dan kichik bo'lsin).", "ru": "❗ Файл слишком большой (до 15 МБ)."},
     # O'qituvchilar
     "choose_role": {
-        "uz": "👋 <b>Siz kimsiz?</b>",
-        "ru": "👋 <b>Кто вы?</b>",
+        "uz": "Tanlang:",
+        "ru": "Выберите:",
     },
-    "btn_role_student": {"uz": "🎓 Talaba", "ru": "🎓 Студент"},
-    "btn_role_teacher": {"uz": "👨‍🏫 O'qituvchi", "ru": "👨‍🏫 Преподаватель"},
+    "btn_role_student": {"uz": "Talaba", "ru": "Студент"},
+    "btn_role_teacher": {"uz": "O'qituvchi", "ru": "Преподаватель"},
     "teacher_ask_university": {
         "uz": "👨‍🏫 <b>O'qituvchi sifatida ro'yxatdan o'tish</b>\n\n🏛 Universitetingiz nomini yozing.\nMasalan: TATU",
         "ru": "👨‍🏫 <b>Регистрация преподавателя</b>\n\n🏛 Напишите название университета.\nНапример: ТУИТ",
@@ -345,6 +345,8 @@ TEXTS: Dict[str, Dict[str, str]] = {
             "📚 Предметы: <b>{subjects}</b> <i>(каждый предмет учтён один раз)</i>"
         ),
     },
+    "live_at": {"uz": "🕒 Hozirgi holat: {time}", "ru": "🕒 Актуально на: {time}"},
+    "btn_refresh": {"uz": "🔄 Yangilash", "ru": "🔄 Обновить"},
     "users_stats": {
         "uz": "👤 <b>Foydalanuvchilar</b>"+NL+NL+"👥 Jami: <b>{total}</b> ta"+NL+"👨‍🏫 O'qituvchilar: <b>{teachers}</b> ta"+NL+"🎓 Talabalar: <b>{students}</b> ta",
         "ru": "👤 <b>Пользователи</b>"+NL+NL+"👥 Всего: <b>{total}</b>"+NL+"👨‍🏫 Преподаватели: <b>{teachers}</b>"+NL+"🎓 Студенты: <b>{students}</b>",
@@ -362,6 +364,10 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "student_approved": {
         "uz": "✅ <b>Jadvalingiz tasdiqlandi</b>\n\nGuruh jadvali yangilandi.",
         "ru": "✅ <b>Ваше расписание подтверждено</b>\n\nРасписание группы обновлено.",
+    },
+    "group_schedule_updated": {
+        "uz": "📅 <b>{group}</b> guruhining dars jadvali yangilandi (admin tasdiqladi)."+NL+"Ko'rish: 📅 Dars jadvali",
+        "ru": "📅 Расписание группы <b>{group}</b> обновлено (подтверждено админом)."+NL+"Смотреть: 📅 Расписание",
     },
     "student_rejected": {
         "uz": "❌ <b>Jadvalingiz rad etildi</b>\n\nAniqroq rasm yuborib ko'ring.",
@@ -418,6 +424,7 @@ LEGACY_LABELS: Dict[str, Set[str]] = {
     "btn_week": {"🗓 Umumiy jadval", "🗓 Всё расписание"},
     "btn_reminder": {"⏰ Eslatma sozlamalari", "⏰ Напоминания"},
     "btn_profile": {"👤 Profilim"},
+    "btn_new_shots": {"📥 Yangi screenshotlar", "📥 Новые расписания"},
 }
 
 

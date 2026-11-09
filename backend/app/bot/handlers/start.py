@@ -42,8 +42,8 @@ async def _show_welcome(message: Message, state: FSMContext, user: User, session
     if not user.group_id:
         # Yangi foydalanuvchi: avval kimligini so'raymiz (talaba yoki o'qituvchi)
         from app.bot.handlers.teacher import role_keyboard
-        await message.answer(welcome_text, parse_mode="HTML")
-        await message.answer(t(lang, "choose_role"), parse_mode="HTML", reply_markup=role_keyboard(lang))
+        # Faqat qisqa "Tanlang:" va ikkita tugma - ortiqcha matn yo'q
+        await message.answer(t(lang, "choose_role"), reply_markup=role_keyboard(lang))
         return
 
     kb = get_admin_main_keyboard(lang) if is_admin else get_user_main_keyboard(lang)

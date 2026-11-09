@@ -121,6 +121,8 @@ def _is_schedule_text(message: Message) -> bool:
 async def process_schedule_text(message: Message, state: FSMContext, current_user: User, session: AsyncSession) -> None:
     """Talaba jadvalni yozib yubordi: AI matndan darslarni ajratib oladi"""
     text = (message.text or "").strip()
+    from app.bot.handlers.user_menu import _is_change_request
+    change_request = _is_change_request(await state.get_data())
     await state.clear()
     from app.bot.handlers.user_menu import process_schedule_input
-    await process_schedule_input(message, current_user, session, schedule_text=text)
+    await process_schedule_input(message, current_user, session, schedule_text=text, change_request=change_request)

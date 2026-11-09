@@ -55,6 +55,11 @@ from app.services.user_service import UserService
 router = Router(name="user_menu")
 
 
+def _is_change_request(data) -> bool:
+    """'Jadval o'zgardi' tugmasidan kelinganmi (state ma'lumotida belgi)"""
+    return isinstance(data, dict) and data.get("change_request") is True
+
+
 def get_today_tomorrow_enums():
     tz = pytz.timezone(settings.TIMEZONE)
     now = datetime.now(tz)
@@ -173,6 +178,7 @@ async def handle_schedule_change(query: CallbackQuery, state: FSMContext, curren
     """Jadval o'zgardi: yangi rasm yoki matn kutiladi, admin tasdiqlagach guruh jadvali almashadi"""
     await query.answer()
     await state.set_state(RegistrationStates.waiting_schedule)
+    await state.update_data(change_request=True)  # o'zgarish faqat admin tasdiqlagach kuchga kiradi
     await query.message.answer(t(lang_of(current_user), "schedule_change_prompt"), parse_mode="HTML")
 
 
@@ -201,7 +207,7 @@ async def _notify_admins(
     username = f" (@{esc(student.username)})" if student.username else ""
 
     for admin_id in settings.admin_id_list:
-        if admin_id == student.telegram_id:
+        if admin_id == student.telegram_id and not needs_review:
             continue
         admin_lang = lang_of(await UserService.get_by_telegram_id(session, admin_id))
         lines = [t(admin_lang, "new_schedule", id=submission_id), "", f"👤 {esc(student.first_name)}{username}"]
@@ -235,8 +241,11 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
         await start_registration(message, state, session, lang)
         return
 
+    change_request = _is_change_request(await state.get_data())
     await state.clear()
-    await process_schedule_input(message, current_user, session, file_id=message.photo[-1].file_id)
+    await process_schedule_input(
+        message, current_user, session, file_id=message.photo[-1].file_id, change_request=change_request
+    )
 
 
 # Rasm fayl qilib yuborilsa Telegram uni siqmaydi - mayda yozuvlar (bino, xona) aniqroq o'qiladi
@@ -250,8 +259,12 @@ async def handle_schedule_document_upload(message: Message, current_user: User, 
         await message.answer(t(lang, "file_too_big"))
         return
 
+    change_request = _is_change_request(await state.get_data())
     await state.clear()
-    await process_schedule_input(message, current_user, session, file_id=message.document.file_id, is_document=True)
+    await process_schedule_input(
+        message, current_user, session, file_id=message.document.file_id, is_document=True,
+        change_request=change_request,
+    )
 
 
 async def process_schedule_input(
@@ -261,6 +274,7 @@ async def process_schedule_input(
     file_id: Optional[str] = None,
     schedule_text: Optional[str] = None,
     is_document: bool = False,
+    change_request: bool = False,
 ) -> None:
     """Jadval rasmi (file_id) yoki qo'lda yozilgan jadval matnini AI orqali o'qib saqlaydi"""
     lang = lang_of(current_user)
@@ -325,7 +339,8 @@ async def process_schedule_input(
         is_admin = current_user.role == UserRole.ADMIN
         # Namuna (mock) provayder natijasi hech qachon haqiqiy jadvalga yozilmaydi
         is_real_ai = not isinstance(get_ai_provider(), MockAIProvider)
-        can_auto_approve = is_real_ai and (is_admin or not existing_schedules)
+        # "Jadval o'zgardi" orqali kelgan jadval hech qachon o'zi saqlanmaydi - faqat admin tasdiqlaydi
+        can_auto_approve = is_real_ai and not change_request and (is_admin or not existing_schedules)
 
         if not can_auto_approve:
             summary = format_counts(subject_count, len(lessons), lang)

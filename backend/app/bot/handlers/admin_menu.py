@@ -5,11 +5,11 @@ from typing import Optional
 import pytz
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, KeyboardButton, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from app.bot.i18n import format_counts, labels, lang_of, t
+from app.bot.i18n import NL, format_counts, labels, lang_of, t
 from app.bot.keyboards.inline import admin_review_keyboard, announcement_confirm_keyboard
 from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
 from app.bot.states import AnnouncementStates
@@ -86,13 +86,45 @@ async def collect_user_counts(session: AsyncSession) -> dict:
     return {"total": total, "teachers": teachers, "students": students}
 
 
+def _live_footer(lang: str) -> str:
+    now = datetime.now(pytz.timezone(settings.TIMEZONE))
+    return NL + NL + t(lang, "live_at", time=now.strftime("%d.%m.%Y %H:%M:%S"))
+
+
+def _refresh_kb(lang: str, data: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t(lang, "btn_refresh"), callback_data=data)]])
+
+
+async def _stats_text(session: AsyncSession, lang: str) -> str:
+    return t(lang, "stats", **await collect_statistics(session)) + _live_footer(lang)
+
+
+async def _users_text(session: AsyncSession, lang: str) -> str:
+    return t(lang, "users_stats", **await collect_user_counts(session)) + _live_footer(lang)
+
+
 @router.message(F.text.in_(labels("btn_stats")))
 async def handle_admin_statistics(message: Message, current_user: User, session: AsyncSession):
     lang = lang_of(current_user)
     if not is_admin_check(current_user):
         await message.answer(t(lang, "admin_only"))
         return
-    await message.answer(t(lang, "stats", **await collect_statistics(session)), parse_mode="HTML")
+    # Har safar bazadan qaytadan hisoblanadi - kesh yo'q
+    await message.answer(await _stats_text(session, lang), parse_mode="HTML", reply_markup=_refresh_kb(lang, "adm_refresh_stats"))
+
+
+@router.callback_query(F.data.in_({"adm_refresh_stats", "adm_refresh_users"}))
+async def handle_admin_refresh(query: CallbackQuery, current_user: User, session: AsyncSession):
+    lang = lang_of(current_user)
+    if not is_admin_check(current_user):
+        await query.answer(t(lang, "admin_only"), show_alert=True)
+        return
+    await query.answer()
+    text = await (_stats_text if query.data == "adm_refresh_stats" else _users_text)(session, lang)
+    try:
+        await query.message.edit_text(text, parse_mode="HTML", reply_markup=_refresh_kb(lang, query.data))
+    except Exception:
+        pass
 
 
 def _submission_caption(
@@ -205,7 +237,27 @@ async def _review(query: CallbackQuery, current_user: User, session: AsyncSessio
     await query.answer()
     if not warning:
         await _notify_student(query, session, submission.user_id, "student_approved" if approved else "student_rejected")
+        if approved and submission.group_id:
+            await _notify_group_updated(query, session, submission.group_id, exclude_user_id=submission.user_id)
     await _send_next_submission(query.message, session, lang)
+
+
+async def _notify_group_updated(query: CallbackQuery, session: AsyncSession, group_id: int, exclude_user_id: int) -> None:
+    """Admin tasdiqlagan yangi jadval haqida guruhning qolgan a'zolariga xabar"""
+    group = await session.get(Group, group_id)
+    members = (await session.execute(
+        select(User).where(User.group_id == group_id, User.is_active == True, User.id != exclude_user_id)
+    )).scalars().all()
+    for member in members:
+        try:
+            await query.bot.send_message(
+                member.telegram_id,
+                t(lang_of(member), "group_schedule_updated", group=esc(group.name if group else "")),
+                parse_mode="HTML",
+            )
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            logger.warning(f"Group update notice not delivered to {member.telegram_id}: {type(e).__name__}")
 
 
 @router.callback_query(F.data.startswith("approve_sub_"))
@@ -253,7 +305,7 @@ async def handle_admin_users(message: Message, current_user: User, session: Asyn
     if not is_admin_check(current_user):
         await message.answer(t(lang, "admin_only"))
         return
-    await message.answer(t(lang, "users_stats", **await collect_user_counts(session)), parse_mode="HTML")
+    await message.answer(await _users_text(session, lang), parse_mode="HTML", reply_markup=_refresh_kb(lang, "adm_refresh_users"))
 
 
 async def _announcement_recipients(session: AsyncSession, university_id: int) -> list:

@@ -83,9 +83,10 @@ async def test_start_handler_triggers_registration_when_no_group():
 
     await handle_start(mock_msg, current_user=new_user, state=mock_state)
 
-    # Avval xush kelibsiz, keyin "Siz kimsiz?" (talaba / o'qituvchi) tugmalari bilan
-    assert mock_msg.answer.call_count == 2
-    role_call = mock_msg.answer.call_args_list[1]
+    # Faqat bitta qisqa "Tanlang:" xabari va ikkita tugma: Talaba / O'qituvchi
+    assert mock_msg.answer.call_count == 1
+    role_call = mock_msg.answer.call_args_list[0]
+    assert role_call.args[0] == "Tanlang:"
     buttons = [b.callback_data for row in role_call.kwargs["reply_markup"].inline_keyboard for b in row]
     assert buttons == ["role_student", "role_teacher"]
 
@@ -290,8 +291,8 @@ async def test_choosing_russian_saves_it_and_continues_in_russian(db_session: As
     assert user.language_code == "ru"
     assert user.language_chosen is True
     texts = [call.args[0] for call in query.message.answer.call_args_list]
-    assert "Привет" in texts[0]
-    assert "Кто вы?" in texts[1]
+    # Til tanlangach darhol qisqa "Выберите:" va rol tugmalari (ortiqcha salom matnisiz)
+    assert texts == ["Выберите:"]
 
 
 @pytest.mark.parametrize("typed", ["712-24", "712_24", "712 24", "712/24", " 712-24 guruh", "712.24"])
@@ -469,3 +470,63 @@ async def test_unknown_message_gets_menu_hint():
     msg = make_mock_message("salom", 5005)
     await handle_unknown_message(msg, current_user=user, session=AsyncMock(), state=AsyncMock())
     assert "Tushunmadim" in msg.answer.call_args.args[0]
+
+
+async def test_university_spelling_variants_are_one_university(db_session: AsyncSession):
+    from app.services.university_service import UniversityService
+
+    u1, _ = await UniversityService.register_university_and_group(db_session, "tatu", "712-24", faculty_name="kiberxavfsizlik")
+    assert u1.name == "TATU"
+    for typed in ["Tatu", "TATU", " tatu ", "Toshkent axborot texnologiyalari universiteti", "ТУИТ"]:
+        u, _ = await UniversityService.register_university_and_group(db_session, typed, "712-24")
+        assert u.id == u1.id, typed
+    from app.models.university import Faculty
+    from sqlalchemy import select as sa_select
+    names = (await db_session.execute(sa_select(Faculty.name))).scalars().all()
+    assert "Kiberxavfsizlik" in names
+
+
+async def test_schedule_change_always_goes_to_admin_review(db_session: AsyncSession, monkeypatch):
+    """'Jadval o'zgardi' orqali kelgan jadval admin bo'lsa ham o'zi saqlanmaydi"""
+    from app.bot.handlers import user_menu
+    from app.models.enums import SubmissionStatus
+    from app.models.schedule import ScheduleSubmission
+    from app.models.university import Faculty, Group, University
+    from sqlalchemy import select as sa_select
+
+    univ = University(name="TATU")
+    db_session.add(univ)
+    await db_session.commit()
+    fac = Faculty(name="KX", university_id=univ.id)
+    db_session.add(fac)
+    await db_session.commit()
+    grp = Group(name="712-24", university_id=univ.id, faculty_id=fac.id)
+    db_session.add(grp)
+    await db_session.commit()
+    admin = User(telegram_id=4242, first_name="Admin", role=UserRole.ADMIN, university_id=univ.id,
+                 faculty_id=fac.id, group_id=grp.id, language_code="uz")
+    db_session.add(admin)
+    await db_session.commit()
+
+    class RealAI:  # Mock emas - avtomatik tasdiqlash shartini sinash uchun
+        async def extract_schedule_from_text(self, text):
+            from app.schemas.ai import ExtractedLessonItem, ExtractedScheduleResult
+            return ExtractedScheduleResult(lessons=[ExtractedLessonItem(
+                day="Dushanba", subject="Matematika", start_time="08:00", end_time="09:30", room="A-1", building="A")])
+
+    monkeypatch.setattr("app.services.ai_service.get_ai_provider", lambda: RealAI())
+    monkeypatch.setattr(user_menu, "get_ai_provider", lambda: RealAI())
+    monkeypatch.setattr(type(user_menu.settings), "admin_id_list", property(lambda self: [4242]))
+
+    msg = make_mock_message("Dushanba 08:00-09:30 Matematika A-1", 4242)
+    msg.answer = AsyncMock(return_value=MagicMock(edit_text=AsyncMock()))
+    msg.bot = MagicMock(send_message=AsyncMock(), send_chat_action=AsyncMock(), send_photo=AsyncMock())
+    msg.document = None
+    await user_menu.process_schedule_input(msg, admin, db_session, schedule_text=msg.text, change_request=True)
+
+    sub = (await db_session.execute(sa_select(ScheduleSubmission))).scalars().first()
+    assert sub.status == SubmissionStatus.ADMIN_REVIEW  # saqlanmadi, tasdiq kutyapti
+    # Admin o'zi yuborgan bo'lsa ham tasdiqlash tugmalari o'ziga keldi
+    sent = msg.bot.send_message.await_args
+    buttons = [b.callback_data for row in sent.kwargs["reply_markup"].inline_keyboard for b in row]
+    assert buttons == [f"approve_sub_{sub.id}", f"reject_sub_{sub.id}"]

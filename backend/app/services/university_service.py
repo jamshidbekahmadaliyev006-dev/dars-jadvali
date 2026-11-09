@@ -47,6 +47,22 @@ def acronym(value: str) -> str:
     return "".join(w[0] for w in words) if len(words) >= 2 else ""
 
 
+def pretty_university_name(value: str) -> str:
+    """'tatu' / 'Tatu' -> 'TATU'; 'toshkent davlat universiteti' -> 'Toshkent Davlat Universiteti'"""
+    words = (value or "").split()
+    if len(words) == 1 and len(words[0]) <= 8 and words[0].isalpha():
+        return words[0].upper()
+    return " ".join(w if any(ch.isupper() for ch in w[1:]) else w[:1].upper() + w[1:] for w in words)
+
+
+def pretty_faculty_name(value: str) -> str:
+    """'kiberxavfsizlik' -> 'Kiberxavfsizlik', 'kx' -> 'KX'"""
+    text = " ".join((value or "").split())
+    if len(text) <= 4 and text.isalpha():
+        return text.upper()
+    return text[:1].upper() + text[1:]
+
+
 def pretty_group_name(value: str) -> str:
     """Yangi guruh nomini bir xil ko'rinishga keltiradi: '712_24' -> '712-24'"""
     cleaned = _GROUP_NOISE_WORDS.sub(" ", value or "").strip()
@@ -271,7 +287,7 @@ class UniversityService:
         """Universitet, fakultet va guruhni yozilgan nom bo'yicha topadi yoki yaratadi"""
         univ = await UniversityService.match_university(session, university_name)
         if not univ:
-            univ = University(name=university_name.strip())
+            univ = University(name=pretty_university_name(university_name))
             session.add(univ)
             await session.flush()
 
@@ -279,7 +295,7 @@ class UniversityService:
         if faculty_name and faculty_name.strip():
             faculty = await UniversityService.match_faculty(session, univ.id, faculty_name)
             if not faculty:
-                faculty = Faculty(university_id=univ.id, name=faculty_name.strip())
+                faculty = Faculty(university_id=univ.id, name=pretty_faculty_name(faculty_name))
                 session.add(faculty)
                 await session.flush()
 

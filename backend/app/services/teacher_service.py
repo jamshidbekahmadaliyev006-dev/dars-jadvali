@@ -6,7 +6,7 @@ from app.models.enums import DayOfWeek, LessonType, TeacherStatus, WeekParity
 from app.models.teacher import TeacherLesson, TeacherProfile
 from app.models.university import University
 from app.services.schedule_service import normalize_subject_name, resolve_day_of_week, resolve_week_parity
-from app.services.university_service import UniversityService, pretty_group_name
+from app.services.university_service import UniversityService, pretty_group_name, pretty_university_name
 
 
 def _clean_room(item: Dict[str, Any]) -> Optional[str]:
@@ -35,7 +35,7 @@ class TeacherService:
         """O'qituvchi so'rovini yaratadi yoki yangilaydi (holati PENDING bo'ladi)"""
         univ = await UniversityService.match_university(session, university_name)
         if not univ:
-            univ = University(name=university_name.strip())
+            univ = University(name=pretty_university_name(university_name))
             session.add(univ)
             await session.flush()
 
