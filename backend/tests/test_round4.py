@@ -300,3 +300,50 @@ async def test_changing_language_only_confirms(db_session: AsyncSession):
     shown = q.message.answer.call_args
     assert "saved" in shown.args[0].lower() or "language" in shown.args[0].lower()
     assert [b.text for row in shown.kwargs["reply_markup"].keyboard for b in row][0] == "📅 Timetable"
+
+
+class _FacultyAI:
+    def __init__(self, verdict):
+        self.verdict = verdict
+
+    async def resolve_faculty(self, typed, existing):
+        return self.verdict
+
+
+@pytest.mark.asyncio
+async def test_faculty_resolution_merges_variants_and_asks_for_full_names(db_session: AsyncSession, monkeypatch):
+    from app.models.university import Faculty, University
+    from app.services import name_validation
+    from app.services.name_validation import resolve_faculty_name
+
+    univ = University(name="Toshkent Axborot Texnologiyalari Universiteti")
+    db_session.add(univ)
+    await db_session.commit()
+    db_session.add_all([Faculty(name="Kiberxavfsizlik", university_id=univ.id),
+                        Faculty(name="Kompyuter injiniringi", university_id=univ.id)])
+    await db_session.commit()
+    U = "TATU"
+
+    monkeypatch.setattr(name_validation, "get_ai_provider", lambda: _FacultyAI(None))
+    # Qoidalar o'zi topadi - AI kerak emas
+    for typed in ("Kiber", "Кибербезопасность", "kiberxafvsizlik", "KIF", "Kompyuter engineering"):
+        got = await resolve_faculty_name(db_session, U, typed)
+        assert got in ("Kiberxavfsizlik", "Kompyuter injiniringi"), typed
+    assert await resolve_faculty_name(db_session, U, "KIF") == "Kompyuter injiniringi"
+    assert await resolve_faculty_name(db_session, U, "Kiber") == "Kiberxavfsizlik"
+
+    # AI "KIF = Kiberxavfsizlik" desa ham, bu qisqartma emas - ishonilmaydi, to'liq yozish so'raladi
+    monkeypatch.setattr(name_validation, "get_ai_provider",
+                        lambda: _FacultyAI({"match": "Kiberxavfsizlik", "complete": True, "canonical": "Kiberxavfsizlik"}))
+    assert await resolve_faculty_name(db_session, U, "ABC") is None
+
+    # Yangi, lekin to'liq nom - toza ko'rinishda qabul
+    monkeypatch.setattr(name_validation, "get_ai_provider",
+                        lambda: _FacultyAI({"match": None, "complete": True, "canonical": "Sanoat muhandisligi"}))
+    assert await resolve_faculty_name(db_session, U, "sanoat muhandisligi") == "Sanoat muhandisligi"
+
+    # Bo'lak/qisqartma va aniqlab bo'lmasa - None (to'liq yozing)
+    monkeypatch.setattr(name_validation, "get_ai_provider",
+                        lambda: _FacultyAI({"match": None, "complete": False, "canonical": None}))
+    assert await resolve_faculty_name(db_session, U, "Telekom") is None
+    assert await resolve_faculty_name(db_session, U, "IT") is None

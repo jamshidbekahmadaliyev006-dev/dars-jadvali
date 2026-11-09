@@ -421,25 +421,21 @@ async def process_schedule_input(
             for name, code in (normalize_subject_name(item.get("subject") or "") for item in lessons)
         })
 
-        # O'qilgan jadvaldagi kamchiliklarni talabaga aniq aytamiz: qaysi dars, nima xato
-        issues = schedule_issues(lessons, lang, from_image=bool(file_id))
-        # Rasm kichik/xira yoki natija yomon (xona/vaqt ko'p yetishmaydi) - tiniqroq yuborishni so'raymiz
+        # Talabaga faqat BITTA xabar ("Jadval saqlandi"). Qo'shimcha xabar faqat haqiqiy muammo bo'lsa:
+        #  - ba'zi darslar o'qilmadi (kun yoki vaqt aniqlanmadi) yoki
+        #  - natija juda yomon (darslarning yarmidan ko'pida xona yo'q) - tiniqroq rasm so'raladi
+        from app.services.schedule_service import resolve_day_of_week
+
+        dropped = sum(
+            1 for item in lessons
+            if not resolve_day_of_week(item.get("day")) or not item.get("start_time") or not item.get("end_time")
+        )
         no_room = sum(1 for item in lessons if not item.get("room"))
-        poor = bool(file_id) and (looks_too_small(images) or (len(lessons) >= 4 and no_room * 2 >= len(lessons)))
+        poor = bool(file_id) and len(lessons) >= 4 and no_room * 2 >= len(lessons)
         if poor:
             await message.answer(t(lang, "schedule_blurry"), parse_mode="HTML")
-        if issues:
-            shown = issues[:10]
-            if len(issues) > 10:
-                shown.append(t(lang, "issues_more", n=len(issues) - 10))
-            parts = [t(lang, "issues_header"), "", *shown, ""]
-            missing_building = bool(file_id) and not is_document and any(
-                item.get("room") and not item.get("building") for item in lessons
-            )
-            if missing_building:
-                parts += [t(lang, "issues_file_tip"), ""]
-            parts.append(t(lang, "issues_footer"))
-            await message.answer("\n".join(parts), parse_mode="HTML")
+        elif dropped:
+            await message.answer(t(lang, "lessons_skipped", n=dropped), parse_mode="HTML")
 
         # Avtomatik tasdiqlash faqat guruhning birinchi jadvali yoki admin uchun: aks holda
         # istalgan a'zo rasm yuborib, butun guruh jadvalini tekshiruvsiz almashtirib qo'yardi.

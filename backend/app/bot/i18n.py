@@ -169,6 +169,10 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "uz": "⚠️ <b>Bu jadval to'liq emas</b>, shuning uchun saqlanmadi."+NL+NL+"Rasmda faqat: {days} ({lessons}) ko'rindi."+NL+NL+"Iltimos, <b>butun haftalik jadvalni</b> (Dushanbadan Shanbagacha, hamma kunlar) yuboring. Jadval bir rasmga sig'masa, bir nechta rasmni <b>birga</b> (albom qilib) yuboring - bot ularni bitta jadval qilib o'qiydi.",
         "ru": "⚠️ <b>Расписание неполное</b>, поэтому не сохранено."+NL+NL+"На фото видно только: {days} ({lessons})."+NL+NL+"Пожалуйста, отправьте <b>расписание на всю неделю</b> (с понедельника по субботу, все дни). Если оно не помещается на одно фото, отправьте несколько фото <b>вместе</b> (альбомом) - бот прочитает их как одно расписание.",
     },
+    "lessons_skipped": {
+        "uz": "⚠️ {n} ta dars o'qilmadi (kun yoki vaqt aniqlanmadi). Kerak bo'lsa jadvalni qayta yuboring.",
+        "ru": "⚠️ Не распознано занятий: {n} (не определён день или время). При необходимости отправьте расписание ещё раз.",
+    },
     "schedule_blurry": {
         "uz": "📷 <b>Rasm mayda ko'rinyapti</b> - xona raqami yoki vaqt noto'g'ri o'qilgan bo'lishi mumkin."+NL+NL+"Jadvalni tekshiring. Xato bo'lsa, <b>yaqinroqdan, tiniqroq</b> qayta yuboring: jadvalni telefonda kattalashtirib skrinshot oling yoki rasmni <b>fayl</b> qilib yuboring (📎 → Fayl).",
         "ru": "📷 <b>Фото выглядит мелким</b> - номер аудитории или время могли прочитаться неточно."+NL+NL+"Проверьте расписание. Если есть ошибки, отправьте <b>крупнее и чётче</b>: увеличьте таблицу на телефоне и сделайте скриншот или отправьте фото <b>файлом</b> (📎 → Файл).",
@@ -299,6 +303,10 @@ TEXTS: Dict[str, Dict[str, str]] = {
     },
     "bad_university": {"uz": "❗ Iltimos, to'g'ri ma'lumot kiriting.\nUniversitetingizning haqiqiy nomini yozing. Masalan: TATU yoki Toshkent axborot texnologiyalari universiteti", "ru": '❗ Пожалуйста, введите верные данные.\nНапишите настоящее название университета. Например: ТУИТ или Ташкентский университет информационных технологий'},
     "bad_faculty": {"uz": "❗ Iltimos, to'g'ri ma'lumot kiriting.\nFakultetingizning haqiqiy nomini yozing. Masalan: Kiberxavfsizlik", "ru": '❗ Пожалуйста, введите верные данные.\nНапишите настоящее название факультета. Например: Кибербезопасность'},
+    "faculty_write_full": {
+        "uz": "✍️ Fakultet nomini <b>to'liq</b> yozing (qisqartmasiz)."+NL+"Masalan: Kiberxavfsizlik, Dasturiy injiniring, Iqtisodiyot",
+        "ru": "✍️ Напишите название факультета <b>полностью</b> (без сокращений)."+NL+"Например: Кибербезопасность, Программная инженерия, Экономика",
+    },
     "bad_group": {"uz": "❗ Iltimos, to'g'ri ma'lumot kiriting.\nGuruh raqamini yozing. Masalan: 712-24", "ru": '❗ Пожалуйста, введите верные данные.\nНапишите номер группы. Например: 712-24'},
     "registered": {"uz": "✅ <b>Tayyor!</b>", "ru": "✅ <b>Готово!</b>"},
     "group_ready": {

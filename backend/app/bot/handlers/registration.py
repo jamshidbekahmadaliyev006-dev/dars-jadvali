@@ -12,7 +12,7 @@ from app.models.enums import UserRole
 from app.models.user import User
 from app.services.schedule_service import ScheduleService
 from app.models.university import Faculty
-from app.services.name_validation import check_faculty_name, check_group_name, check_university_name
+from app.services.name_validation import check_faculty_name, check_group_name, check_university_name, resolve_faculty_name
 from app.services.university_service import GENERAL_FACULTY_NAME, UniversityService
 
 router = Router(name="registration")
@@ -67,7 +67,14 @@ async def process_faculty(message: Message, state: FSMContext, current_user: Use
         await message.answer(t(lang, "bad_faculty"))
         return
 
-    await state.update_data(faculty_name=name)
+    # Fakultetni aniqlash: avval qoidalar (tez), keyin AI mavjud fakultetlar bilan solishtiradi.
+    # Qisqa/to'liq bo'lmagan nom aniqlanmasa - to'liq yozishni so'raymiz.
+    resolved = await resolve_faculty_name(session, university_name, name)
+    if resolved is None:
+        await message.answer(t(lang, "faculty_write_full"), parse_mode="HTML")
+        return
+
+    await state.update_data(faculty_name=resolved)
     await state.set_state(RegistrationStates.waiting_group)
     await message.answer(t(lang, "ask_group"), parse_mode="HTML")
 

@@ -33,6 +33,13 @@ class BaseAIProvider(ABC):
         """Nom haqiqiy universitet/fakultet/kafedraga o'xshaydimi; bilib bo'lmasa None"""
         return None
 
+    async def resolve_faculty(self, typed: str, existing: List[str]) -> Optional[Dict[str, Any]]:
+        """
+        Yozilgan fakultet nomini mavjud fakultetlarga moslaydi.
+        {"match": mavjud nom | None, "complete": bool, "canonical": to'liq nom | None}; bilib bo'lmasa None.
+        """
+        return None
+
     async def extract_schedule_from_images(
         self, images: List[bytes], filenames: Optional[List[str]] = None
     ) -> ExtractedScheduleResult:
@@ -386,6 +393,51 @@ class GroqAIProvider(BaseAIProvider):
         if self.vision_provider:
             return await self.vision_provider.extract_schedule_from_text(text)
         raise RuntimeError("Jadval matnini o'qish uchun GEMINI_API_KEY kerak")
+
+    async def resolve_faculty(self, typed: str, existing: List[str]) -> Optional[Dict[str, Any]]:
+        known = "; ".join(existing[:60]) or "(hali yo'q)"
+        payload = {
+            "model": self.chat_model,
+            "messages": [
+                {"role": "system", "content": (
+                    "Siz O'zbekiston universiteti fakultetlari bo'yicha mutaxassissiz. Talaba o'z fakultetini yozdi. "
+                    "Uni quyidagi MAVJUD fakultetlar ro'yxatiga moslang. Talaba o'zbek (lotin), rus yoki ingliz tilida, "
+                    "qisqartma yoki imlo xatosi bilan yozishi mumkin ('Kiber', 'KIF', 'Кибербезопасность', 'Kompyuter engineering' "
+                    "kabilar - bular mavjud 'Kiberxavfsizlik' va 'Kompyuter injiniringi' fakultetlari).\n"
+                    f"MAVJUD fakultetlar: {known}\n"
+                    "Javob faqat JSON: {\"match\": mavjud fakultetning AYNAN o'sha nomi yoki null, "
+                    "\"complete\": true/false, \"canonical\": to'liq rasmiy nom (o'zbek lotin, bosh harf bilan) yoki null}.\n"
+                    "Qoidalar: (1) yozilgan nom mavjud fakultetlardan birining boshqacha yozilishi bo'lsa - match shu nom. "
+                    "(2) match yo'q bo'lsa va yozilgan nom to'liq, tushunarli fakultet nomi bo'lsa - complete=true va canonical "
+                    "to'liq nom. (3) Yozilgan nom qisqartma yoki bo'lak bo'lsa va uni aniq bitta to'liq nomga yoyib bo'lmasa - "
+                    "complete=false."
+                )},
+                {"role": "user", "content": typed[:120]},
+            ],
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+        }
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                res = await client.post(self.BASE_URL, headers=self._headers(), json=payload)
+                if res.status_code == 429:  # tezlik chegarasi: bir marta kutib qayta uriniladi
+                    await asyncio.sleep(2)
+                    res = await client.post(self.BASE_URL, headers=self._headers(), json=payload)
+            if res.status_code != 200:
+                logger.error(f"Groq resolve_faculty error {res.status_code}")
+                return None
+            data = json.loads(res.json()["choices"][0]["message"]["content"])
+            match = data.get("match")
+            if match not in existing:
+                match = None
+            return {
+                "match": match,
+                "complete": bool(data.get("complete", True)),
+                "canonical": (data.get("canonical") or "").strip() or None,
+            }
+        except Exception as e:
+            logger.error(f"Groq resolve_faculty failed: {type(e).__name__}")
+            return None
 
     async def judge_name(self, kind: str, value: str) -> Optional[bool]:
         what = {
