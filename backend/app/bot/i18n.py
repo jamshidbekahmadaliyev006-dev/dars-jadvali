@@ -251,9 +251,9 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "uz": "👥 <b>Guruhingizni yozing</b>\n\nMasalan: 712-24",
         "ru": "👥 <b>Напишите вашу группу</b>\n\nНапример: 712-24",
     },
-    "bad_university": {"uz": "❗ Universitet nomini yozing.", "ru": "❗ Напишите название университета."},
-    "bad_faculty": {"uz": "❗ Fakultet nomini yozing.", "ru": "❗ Напишите название факультета."},
-    "bad_group": {"uz": "❗ Guruh nomini yozing.", "ru": "❗ Напишите название группы."},
+    "bad_university": {"uz": "❗ Iltimos, to'g'ri ma'lumot kiriting.\nUniversitetingizning haqiqiy nomini yozing. Masalan: TATU yoki Toshkent axborot texnologiyalari universiteti", "ru": '❗ Пожалуйста, введите верные данные.\nНапишите настоящее название университета. Например: ТУИТ или Ташкентский университет информационных технологий'},
+    "bad_faculty": {"uz": "❗ Iltimos, to'g'ri ma'lumot kiriting.\nFakultetingizning haqiqiy nomini yozing. Masalan: Kiberxavfsizlik", "ru": '❗ Пожалуйста, введите верные данные.\nНапишите настоящее название факультета. Например: Кибербезопасность'},
+    "bad_group": {"uz": "❗ Iltimos, to'g'ri ma'lumot kiriting.\nGuruh raqamini yozing. Masalan: 712-24", "ru": '❗ Пожалуйста, введите верные данные.\nНапишите номер группы. Например: 712-24'},
     "registered": {"uz": "✅ <b>Tayyor!</b>", "ru": "✅ <b>Готово!</b>"},
     "group_ready": {
         "uz": "Guruhingiz jadvali tayyor, rasm yuborish shart emas. Eslatmalar yoqildi.",

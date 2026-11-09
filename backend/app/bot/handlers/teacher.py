@@ -36,6 +36,7 @@ from app.models.university import University
 from app.models.user import User
 from app.services.ai_provider import get_ai_provider
 from app.services.schedule_service import ScheduleService, current_local_date, week_parity_for
+from app.services.name_validation import check_faculty_name, check_university_name, has_bad_word
 from app.services.teacher_service import TeacherService
 from app.services.user_service import UserService
 
@@ -130,10 +131,10 @@ def _valid(text: str) -> bool:
 
 
 @router.message(TeacherStates.waiting_university, F.text)
-async def teacher_university(message: Message, state: FSMContext, current_user: User):
+async def teacher_university(message: Message, state: FSMContext, current_user: User, session: AsyncSession):
     lang = lang_of(current_user)
     text = (message.text or "").strip()
-    if not _valid(text):
+    if not _valid(text) or not await check_university_name(session, text):
         await message.answer(t(lang, "bad_university"))
         return
     await state.update_data(t_university=text)
@@ -145,7 +146,7 @@ async def teacher_university(message: Message, state: FSMContext, current_user: 
 async def teacher_name(message: Message, state: FSMContext, current_user: User):
     lang = lang_of(current_user)
     text = " ".join((message.text or "").split())
-    if not _valid(text) or len(text.split()) < 2:
+    if not _valid(text) or len(text.split()) < 2 or has_bad_word(text) or any(ch.isdigit() for ch in text):
         await message.answer(t(lang, "teacher_bad_name"))
         return
     await state.update_data(t_name=text)
@@ -157,10 +158,10 @@ async def teacher_name(message: Message, state: FSMContext, current_user: User):
 async def teacher_department(message: Message, state: FSMContext, current_user: User, session: AsyncSession):
     lang = lang_of(current_user)
     text = (message.text or "").strip()
-    if not _valid(text):
+    data = await state.get_data()
+    if not _valid(text) or not await check_faculty_name(session, text, data.get("t_university")):
         await message.answer(t(lang, "bad_faculty"))
         return
-    data = await state.get_data()
     profile = await TeacherService.submit_profile(
         session, current_user.id, data.get("t_university", ""), data.get("t_name", ""), text
     )

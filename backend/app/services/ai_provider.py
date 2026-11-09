@@ -29,6 +29,10 @@ class BaseAIProvider(ABC):
         """Dars jadvali screenshotidan darslarni strukturali JSON ko'rinishida ajratib olish"""
         pass
 
+    async def judge_name(self, kind: str, value: str) -> Optional[bool]:
+        """Nom haqiqiy universitet/fakultet/kafedraga o'xshaydimi; bilib bo'lmasa None"""
+        return None
+
     async def extract_schedule_from_text(self, text: str) -> ExtractedScheduleResult:
         """Talaba qo'lda yozgan jadval matnidan darslarni ajratib olish"""
         raise RuntimeError("Bu AI provayderi jadval matnini o'qiy olmaydi")
@@ -348,6 +352,38 @@ class GroqAIProvider(BaseAIProvider):
         if self.vision_provider:
             return await self.vision_provider.extract_schedule_from_text(text)
         raise RuntimeError("Jadval matnini o'qish uchun GEMINI_API_KEY kerak")
+
+    async def judge_name(self, kind: str, value: str) -> Optional[bool]:
+        what = {
+            "university": "oliy ta'lim muassasasi (universitet, institut, akademiya) nomi yoki uning qisqartmasi",
+            "faculty": "universitet fakulteti yoki kafedrasi nomi (masalan Kiberxavfsizlik, Iqtisodiyot, Matematika) yoki uning qisqartmasi",
+        }.get(kind, kind)
+        payload = {
+            "model": self.chat_model,
+            "messages": [
+                {"role": "system", "content": (
+                    "Siz ro'yxatdan o'tish formasini tekshiruvchisiz. Foydalanuvchi yozgan matn haqiqatan "
+                    f"{what} bo'lishi mumkinmi? O'zbek, rus yoki ingliz tilida, imlo xatosi bilan bo'lishi mumkin - "
+                    "bunday holatda ham ha. Haqorat, so'kinish, ovqat nomi, tasodifiy harflar, hazil, "
+                    "odam ismi yoki mavzuga aloqasiz so'z bo'lsa - yo'q. "
+                    'Faqat JSON qaytaring: {"ok": true} yoki {"ok": false}.'
+                )},
+                {"role": "user", "content": value[:120]},
+            ],
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+        }
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                res = await client.post(self.BASE_URL, headers=self._headers(), json=payload)
+            if res.status_code != 200:
+                logger.error(f"Groq judge_name error {res.status_code}")
+                return None
+            content = res.json()["choices"][0]["message"]["content"]
+            return bool(json.loads(content).get("ok"))
+        except Exception as e:
+            logger.error(f"Groq judge_name failed: {type(e).__name__}")
+            return None
 
     async def chat_student_assistant(self, query: str, context: Dict[str, Any]) -> str:
         system_instruction = (

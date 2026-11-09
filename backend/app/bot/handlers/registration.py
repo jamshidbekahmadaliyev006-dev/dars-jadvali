@@ -12,6 +12,7 @@ from app.models.enums import UserRole
 from app.models.user import User
 from app.services.schedule_service import ScheduleService
 from app.models.university import Faculty
+from app.services.name_validation import check_faculty_name, check_group_name, check_university_name
 from app.services.university_service import GENERAL_FACULTY_NAME, UniversityService
 
 router = Router(name="registration")
@@ -45,10 +46,10 @@ async def start_registration(
 
 
 @router.message(RegistrationStates.waiting_university, F.text)
-async def process_university(message: Message, state: FSMContext, current_user: User) -> None:
+async def process_university(message: Message, state: FSMContext, current_user: User, session: AsyncSession) -> None:
     lang = lang_of(current_user)
     name = (message.text or "").strip()
-    if not _is_valid_name(name):
+    if not _is_valid_name(name) or not await check_university_name(session, name):
         await message.answer(t(lang, "bad_university"))
         return
 
@@ -58,10 +59,11 @@ async def process_university(message: Message, state: FSMContext, current_user: 
 
 
 @router.message(RegistrationStates.waiting_faculty, F.text)
-async def process_faculty(message: Message, state: FSMContext, current_user: User) -> None:
+async def process_faculty(message: Message, state: FSMContext, current_user: User, session: AsyncSession) -> None:
     lang = lang_of(current_user)
     name = (message.text or "").strip()
-    if not _is_valid_name(name):
+    university_name = (await state.get_data()).get("university_name")
+    if not _is_valid_name(name) or not await check_faculty_name(session, name, university_name):
         await message.answer(t(lang, "bad_faculty"))
         return
 
@@ -74,7 +76,7 @@ async def process_faculty(message: Message, state: FSMContext, current_user: Use
 async def process_group(message: Message, state: FSMContext, current_user: User, session: AsyncSession) -> None:
     lang = lang_of(current_user)
     name = (message.text or "").strip()
-    if not _is_valid_name(name, min_length=1):
+    if not _is_valid_name(name, min_length=1) or not check_group_name(name):
         await message.answer(t(lang, "bad_group"))
         return
 
