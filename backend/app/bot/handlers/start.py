@@ -16,6 +16,8 @@ from app.models.university import Faculty
 from app.models.user import User
 from app.services.schedule_service import ScheduleService
 from app.services.university_service import GENERAL_FACULTY_NAME, UniversityService
+from app.services.teacher_service import TeacherService
+from app.models.enums import TeacherStatus
 
 router = Router(name="start")
 
@@ -27,9 +29,21 @@ async def _show_welcome(message: Message, state: FSMContext, user: User, session
     is_admin = user.role == UserRole.ADMIN
     welcome_text = t(lang, "welcome_admin" if is_admin else "welcome_student", name=name)
 
+    # O'qituvchi: tasdiqlangan bo'lsa o'z jadvali, kutayotgan bo'lsa holati
+    teacher = await TeacherService.get_profile(session, user.id) if session is not None else None
+    if teacher and teacher.status == TeacherStatus.APPROVED:
+        from app.bot.handlers.teacher import show_teacher_home
+        await show_teacher_home(message, user, teacher, session, state)
+        return
+    if teacher and teacher.status == TeacherStatus.PENDING and not user.group_id:
+        await message.answer(t(lang, "teacher_still_pending"))
+        return
+
     if not user.group_id:
+        # Yangi foydalanuvchi: avval kimligini so'raymiz (talaba yoki o'qituvchi)
+        from app.bot.handlers.teacher import role_keyboard
         await message.answer(welcome_text, parse_mode="HTML")
-        await start_registration(message, state, session, lang)
+        await message.answer(t(lang, "choose_role"), parse_mode="HTML", reply_markup=role_keyboard(lang))
         return
 
     kb = get_admin_main_keyboard(lang) if is_admin else get_user_main_keyboard(lang)

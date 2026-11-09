@@ -183,3 +183,58 @@ def format_reminder(
     if schedule.teacher:
         lines.append(f"👤 {esc(schedule.teacher.full_name)}")
     return "\n".join(lines)
+
+
+# --- O'qituvchi jadvali ---
+def _teacher_line(lesson: Any, lang: str, show_parity: bool = False) -> str:
+    parts = [f"<b>{esc(lesson.start_time)}–{esc(lesson.end_time)}</b> — {esc(lesson.subject)}"]
+    if lesson.group_name:
+        parts.append(f"👥 {esc(lesson.group_name)}")
+    if lesson.room:
+        parts.append(f"📍 {esc(lesson.room)}")
+    if show_parity and lesson.week_parity in PARITY_LABELS[lang]:
+        parts.append(PARITY_LABELS[lang][lesson.week_parity])
+    return " · ".join(parts)
+
+
+def format_teacher_day(icon: str, title: str, lessons: Sequence[Any], lang: str = DEFAULT_LANG) -> str:
+    if not lessons:
+        return f"{icon} <b>{title}</b>\n\n{t(lang, 'day_empty')}"
+    lines = [f"{icon} <b>{title}</b> — {format_lesson_count(len(lessons), lang)}\n"]
+    lines.extend(_teacher_line(l, lang) for l in lessons)
+    return "\n".join(lines)
+
+
+def format_teacher_week(lessons: Sequence[Any], lang: str = DEFAULT_LANG) -> str:
+    groups = sorted({l.group_name for l in lessons if l.group_name})
+    current_parity = week_parity_for(current_local_date())
+    lines = [
+        t(lang, "teacher_week_title"),
+        t(lang, "week_today", date=format_date(current_local_date(), lang, with_year=True)),
+        t(lang, "teacher_week_summary", lessons=format_lesson_count(len(lessons), lang), groups=len(groups)),
+        t(lang, "week_now", parity=PARITY_LABELS[lang][current_parity]),
+    ]
+    by_day: Dict[DayOfWeek, List[Any]] = {}
+    for lesson in lessons:
+        by_day.setdefault(lesson.day_of_week, []).append(lesson)
+    for day in DayOfWeek:
+        if by_day.get(day):
+            lines.append(f"\n<b>{DAY_LABELS[lang][day]}</b>")
+            lines.extend(_teacher_line(l, lang, show_parity=True) for l in sorted(by_day[day], key=lambda l: l.start_time))
+    return "\n".join(lines)
+
+
+def format_teacher_reminder(lesson: Any, minutes_left: int, lang: str, lesson_date: date) -> str:
+    header = t(lang, "reminder_in", time=format_minutes(minutes_left, lang)) if minutes_left > 0 else t(lang, "reminder_now")
+    lines = [
+        header,
+        "",
+        f"📅 {format_date(lesson_date, lang, with_year=True)}",
+        f"📚 {esc(lesson.subject)}",
+        f"🕒 {esc(lesson.start_time)}–{esc(lesson.end_time)}",
+    ]
+    if lesson.group_name:
+        lines.append(f"👥 {esc(lesson.group_name)}")
+    if lesson.room:
+        lines.append(f"📍 {esc(lesson.room)}")
+    return "\n".join(lines)

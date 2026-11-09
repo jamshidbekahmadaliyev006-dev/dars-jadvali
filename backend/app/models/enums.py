@@ -51,3 +51,9 @@ class NotificationType(str, enum.Enum):
     TASK_REMINDER = "TASK_REMINDER"
     ANNOUNCEMENT = "ANNOUNCEMENT"
     SYSTEM = "SYSTEM"
+
+
+class TeacherStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"

@@ -83,9 +83,11 @@ async def test_start_handler_triggers_registration_when_no_group():
 
     await handle_start(mock_msg, current_user=new_user, state=mock_state)
 
-    # Avval xush kelibsiz, keyin ro'yxatdan o'tish (universitet so'rovi) yuboriladi
+    # Avval xush kelibsiz, keyin "Siz kimsiz?" (talaba / o'qituvchi) tugmalari bilan
     assert mock_msg.answer.call_count == 2
-    mock_state.set_state.assert_awaited_once()
+    role_call = mock_msg.answer.call_args_list[1]
+    buttons = [b.callback_data for row in role_call.kwargs["reply_markup"].inline_keyboard for b in row]
+    assert buttons == ["role_student", "role_teacher"]
 
 
 @pytest.mark.asyncio
@@ -289,7 +291,7 @@ async def test_choosing_russian_saves_it_and_continues_in_russian(db_session: As
     assert user.language_chosen is True
     texts = [call.args[0] for call in query.message.answer.call_args_list]
     assert "Привет" in texts[0]
-    assert "название университета" in texts[1]
+    assert "Кто вы?" in texts[1]
 
 
 @pytest.mark.parametrize("typed", ["712-24", "712_24", "712 24", "712/24", " 712-24 guruh", "712.24"])

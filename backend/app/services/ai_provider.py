@@ -182,7 +182,8 @@ class GeminiAIProvider(BaseAIProvider):
         "day (Dushanba, Seshanba, Chorshanba, Payshanba, Juma, Shanba, Yakshanba), subject, "
         "teacher (yo'q bo'lsa null), start_time (HH:MM), end_time (HH:MM), building (yo'q bo'lsa null), "
         "room (yo'q bo'lsa null), lesson_type (LECTURE, PRACTICE, LAB, SEMINAR yoki OTHER), "
-        "week_parity (toq hafta=ODD, juft hafta=EVEN, belgi bo'lmasa=ALL)."
+        "week_parity (toq hafta=ODD, juft hafta=EVEN, belgi bo'lmasa=ALL), "
+        "group (dars qaysi guruh bilan - guruh nomi ko'rinsa, masalan '712-24'; o'qituvchi jadvalida muhim; bo'lmasa null)."
     )
 
     async def extract_schedule_from_text(self, text: str) -> ExtractedScheduleResult:

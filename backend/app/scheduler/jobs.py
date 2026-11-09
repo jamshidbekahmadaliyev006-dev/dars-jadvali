@@ -8,13 +8,14 @@ from app.bot.bot_instance import get_bot
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.logging import logger
-from app.models.enums import DayOfWeek, NotificationType, WeekParity
+from app.models.enums import DayOfWeek, NotificationType, TeacherStatus, WeekParity
+from app.models.teacher import TeacherLesson, TeacherProfile
 from app.models.log import NotificationLog
 from app.models.schedule import ReminderSetting, Schedule
 from app.models.university import Group, Room
 from app.models.user import User
 from app.bot.i18n import lang_of
-from app.bot.text_utils import format_reminder
+from app.bot.text_utils import format_reminder, format_teacher_reminder
 from app.services.schedule_service import week_parity_for
 
 
@@ -59,6 +60,7 @@ async def check_and_send_lesson_reminders():
             res = await session.execute(stmt)
             schedules = res.scalars().all()
             await _process_schedules(session, schedules, now)
+            await _process_teacher_lessons(session, today_enum, now)
     except Exception as e:
         # Vazifa ichidagi kutilmagan xatolik (masalan, DB vaqtincha mavjud emas) butun
         # schedulerni to'xtatib qo'ymasligi uchun shu yerda ushlab, log qilib qo'yamiz
@@ -157,3 +159,81 @@ async def _process_schedules(session: AsyncSession, schedules, now: datetime) ->
                         logger.info(f"Sent reminder for schedule {sched.id} to student {student.id}")
         except Exception as e:
             logger.error(f"Error checking schedule {sched.id}: {e}")
+
+
+async def _process_teacher_lessons(session: AsyncSession, today_enum: DayOfWeek, now: datetime) -> None:
+    """Tasdiqlangan o'qituvchilarga o'z darslari oldidan eslatma (talabalar bilan bir xil qoidalar)"""
+    stmt = (
+        select(TeacherLesson, TeacherProfile, User)
+        .join(TeacherProfile, TeacherProfile.id == TeacherLesson.teacher_id)
+        .join(User, User.id == TeacherProfile.user_id)
+        .where(
+            TeacherLesson.day_of_week == today_enum,
+            TeacherLesson.is_active == True,
+            TeacherLesson.week_parity.in_([WeekParity.ALL, week_parity_for(now.date())]),
+            TeacherProfile.status == TeacherStatus.APPROVED,
+            User.is_active == True,
+        )
+    )
+    rows = (await session.execute(stmt)).all()
+    if not rows:
+        return
+    bot = get_bot()
+
+    for lesson, profile, user in rows:
+        try:
+            hour, minute = map(int, lesson.start_time.split(":"))
+            lesson_start_dt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            time_diff = lesson_start_dt - now
+            diff_minutes = int(time_diff.total_seconds() / 60)
+
+            setting = (await session.execute(
+                select(ReminderSetting).where(ReminderSetting.user_id == user.id)
+            )).scalar_one_or_none()
+            minutes_before = setting.minutes_before if setting else 15
+            if setting and not setting.is_enabled:
+                continue
+            if not (0 <= diff_minutes <= minutes_before):
+                continue
+
+            log_title = f"Ustoz: {lesson.subject} ({lesson.start_time}) {lesson.group_name or ''}".strip()[:200]
+            already = (await session.execute(
+                select(NotificationLog.id).where(
+                    NotificationLog.user_id == user.id,
+                    NotificationLog.title == log_title,
+                    NotificationLog.scheduled_for == lesson_start_dt.replace(tzinfo=None),
+                    or_(
+                        NotificationLog.is_success == True,
+                        *[NotificationLog.error_message.ilike(f"%{m}%") for m in PERMANENT_SEND_ERRORS],
+                    ),
+                ).limit(1)
+            )).first()
+            if already:
+                continue
+
+            minutes_left = min(minutes_before, max(0, math.ceil(time_diff.total_seconds() / 60)))
+            text = format_teacher_reminder(lesson, minutes_left, lang_of(user), lesson_start_dt.date())
+            sent_success, error_txt = False, None
+            if bot:
+                try:
+                    await bot.send_message(chat_id=user.telegram_id, text=text, parse_mode="HTML")
+                    sent_success = True
+                except Exception as e:
+                    error_txt = str(e)
+                    logger.error(f"Failed to send teacher reminder to {user.telegram_id}: {e}")
+            else:
+                sent_success = True
+
+            session.add(NotificationLog(
+                user_id=user.id,
+                notification_type=NotificationType.LESSON_REMINDER,
+                title=log_title,
+                body=text,
+                scheduled_for=lesson_start_dt.replace(tzinfo=None),
+                sent_at=now,
+                is_success=sent_success,
+                error_message=error_txt,
+            ))
+            await session.commit()
+        except Exception as e:
+            logger.error(f"Error checking teacher lesson {lesson.id}: {e}")

@@ -22,6 +22,7 @@ class ExtractedLessonItem(BaseModel):
     room: Optional[str] = None
     lesson_type: Optional[str] = "LECTURE"
     week_parity: Optional[str] = "ALL"  # ALL, ODD (toq hafta), EVEN (juft hafta)
+    group: Optional[str] = None  # o'qituvchi jadvalida: qaysi guruh bilan dars
 
 
 class ExtractedScheduleResult(BaseModel):

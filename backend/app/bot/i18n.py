@@ -153,6 +153,73 @@ TEXTS: Dict[str, Dict[str, str]] = {
               "AI распознает его, и после подтверждения админом расписание группы обновится.",
     },
     "file_too_big": {"uz": "❗ Fayl juda katta (15 MB dan kichik bo'lsin).", "ru": "❗ Файл слишком большой (до 15 МБ)."},
+    # O'qituvchilar
+    "choose_role": {
+        "uz": "👋 <b>Siz kimsiz?</b>",
+        "ru": "👋 <b>Кто вы?</b>",
+    },
+    "btn_role_student": {"uz": "🎓 Talaba", "ru": "🎓 Студент"},
+    "btn_role_teacher": {"uz": "👨‍🏫 O'qituvchi", "ru": "👨‍🏫 Преподаватель"},
+    "teacher_ask_university": {
+        "uz": "👨‍🏫 <b>O'qituvchi sifatida ro'yxatdan o'tish</b>\n\n🏛 Universitetingiz nomini yozing.\nMasalan: TATU",
+        "ru": "👨‍🏫 <b>Регистрация преподавателя</b>\n\n🏛 Напишите название университета.\nНапример: ТУИТ",
+    },
+    "teacher_ask_name": {
+        "uz": "👤 To'liq ismingizni yozing (F.I.Sh.).\nMasalan: Karimov Anvar Rustamovich",
+        "ru": "👤 Напишите ваше полное имя (Ф.И.О.).\nНапример: Каримов Анвар Рустамович",
+    },
+    "teacher_ask_department": {
+        "uz": "🎓 Kafedra yoki fakultetingizni yozing.\nMasalan: Kiberxavfsizlik",
+        "ru": "🎓 Напишите кафедру или факультет.\nНапример: Кибербезопасность",
+    },
+    "teacher_bad_name": {"uz": "❗ To'liq ismingizni yozing (kamida 2 so'z).", "ru": "❗ Напишите полное имя (минимум 2 слова)."},
+    "teacher_pending": {
+        "uz": "⏳ <b>So'rovingiz adminga yuborildi.</b>\n\nTasdiqlangach shu yerga xabar keladi, keyin dars jadvalingizni yuborasiz.",
+        "ru": "⏳ <b>Заявка отправлена администратору.</b>\n\nПосле подтверждения придёт сообщение, затем отправите своё расписание.",
+    },
+    "teacher_still_pending": {
+        "uz": "⏳ So'rovingiz hali ko'rib chiqilmoqda. Tasdiqlangach xabar beramiz.",
+        "ru": "⏳ Заявка ещё на рассмотрении. Сообщим после подтверждения.",
+    },
+    "teacher_request_admin": {
+        "uz": "👨‍🏫 <b>Yangi o'qituvchi so'rovi</b>\n\n👤 {name}\n🏛 {university}\n🎓 {department}\n🆔 {who}",
+        "ru": "👨‍🏫 <b>Новая заявка преподавателя</b>\n\n👤 {name}\n🏛 {university}\n🎓 {department}\n🆔 {who}",
+    },
+    "btn_teacher_ok": {"uz": "✅ Tasdiqlash", "ru": "✅ Подтвердить"},
+    "btn_teacher_no": {"uz": "❌ Rad etish", "ru": "❌ Отклонить"},
+    "admin_teacher_approved": {"uz": "✅ O'qituvchi tasdiqlandi: {name}", "ru": "✅ Преподаватель подтверждён: {name}"},
+    "admin_teacher_rejected": {"uz": "❌ O'qituvchi so'rovi rad etildi: {name}", "ru": "❌ Заявка отклонена: {name}"},
+    "teacher_approved": {
+        "uz": "✅ <b>Siz o'qituvchi sifatida tasdiqlandingiz!</b>",
+        "ru": "✅ <b>Вы подтверждены как преподаватель!</b>",
+    },
+    "teacher_rejected": {
+        "uz": "❌ O'qituvchi so'rovingiz rad etildi. Savol bo'lsa: ✉️ Murojaat. Talaba sifatida davom etish uchun /start bosing.",
+        "ru": "❌ Заявка преподавателя отклонена. Вопросы: ✉️ Обращение. Чтобы продолжить как студент, нажмите /start.",
+    },
+    "teacher_send_schedule": {
+        "uz": "📸 Dars jadvalingiz <b>rasmini</b> (yoki faylini) yuboring yoki ✍️ <b>yozib</b> yuboring. "
+              "Har bir darsda guruhni ham yozing, masalan:\n\n"
+              "<code>Dushanba 08:00-09:30 Matematika 712-24 A-327\nDushanba 09:30-11:00 Fizika 732-24 B-210</code>",
+        "ru": "📸 Отправьте <b>фото</b> (или файл) своего расписания или ✍️ <b>напишите</b> его текстом. "
+              "У каждого занятия укажите группу, например:\n\n"
+              "<code>Понедельник 08:00-09:30 Математика 712-24 A-327\nПонедельник 09:30-11:00 Физика 732-24 B-210</code>",
+    },
+    "teacher_saved": {
+        "uz": "✅ <b>Jadvalingiz saqlandi</b>\n\n📚 {lessons} · 👥 {groups} ta guruh\n⏰ Eslatma darsdan {time} oldin keladi.",
+        "ru": "✅ <b>Расписание сохранено</b>\n\n📚 {lessons} · 👥 групп: {groups}\n⏰ Напоминание придёт за {time} до занятия.",
+    },
+    "teacher_no_schedule": {
+        "uz": "📭 Jadvalingiz hali yo'q.",
+        "ru": "📭 Вашего расписания пока нет.",
+    },
+    "teacher_week_title": {"uz": "👨‍🏫 <b>Mening dars jadvalim</b>", "ru": "👨‍🏫 <b>Моё расписание</b>"},
+    "teacher_week_summary": {"uz": "📚 {lessons} · 👥 {groups} ta guruh", "ru": "📚 {lessons} · 👥 групп: {groups}"},
+    "teacher_profile": {
+        "uz": "👨‍🏫 <b>{name}</b>\n\n🏛 Universitet: {university}\n🎓 Kafedra: {department}\n📚 {lessons} · 👥 {groups} ta guruh\n⏰ Eslatma: darsdan {time} oldin",
+        "ru": "👨‍🏫 <b>{name}</b>\n\n🏛 Университет: {university}\n🎓 Кафедра: {department}\n📚 {lessons} · 👥 групп: {groups}\n⏰ Напоминание: за {time} до занятия",
+    },
+    "issue_group": {"uz": "guruh ko'rsatilmagan", "ru": "группа не указана"},
     "start_your_data": {"uz": "📋 <b>Ma'lumotlaringiz saqlangan:</b>", "ru": "📋 <b>Ваши данные сохранены:</b>"},
     "profile_university": {"uz": "🏛 Universitet: {name}", "ru": "🏛 Университет: {name}"},
     "profile_faculty": {"uz": "🎓 Fakultet: {name}", "ru": "🎓 Факультет: {name}"},

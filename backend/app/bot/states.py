@@ -23,3 +23,11 @@ class ContactStates(StatesGroup):
 class AnnouncementStates(StatesGroup):
     """Admin e'lon matnini yozish oqimi"""
     waiting_text = State()
+
+
+class TeacherStates(StatesGroup):
+    """O'qituvchi ro'yxatdan o'tishi va jadval yuborishi"""
+    waiting_university = State()
+    waiting_name = State()
+    waiting_department = State()
+    waiting_schedule = State()
