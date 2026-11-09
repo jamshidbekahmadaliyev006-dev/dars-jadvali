@@ -20,6 +20,16 @@ GENERAL_FACULTY_NAME = "Umumiy"
 _GROUP_NOISE_WORDS = re.compile(r"\b(guruh|guruhi|gr|group|группа|гр)\b", re.IGNORECASE)
 
 
+# Bir universitetning boshqa tildagi / boshqa qisqartmadagi nomlari (kalit -> asosiy qisqartma)
+UNIVERSITY_ALIASES = {
+    "tuit": "tatu", "туит": "tatu", "тату": "tatu",
+    "tatumuhammadalxorazmiy": "tatu", "muhammadalxorazmiy": "tatu",
+    "ташкентскийуниверситетинформационныхтехнологий": "tatu",
+    "tdtu": "tdtu", "тгту": "tdtu",
+    "milliyuniversitet": "ozmu", "nuu": "ozmu", "нууз": "ozmu", "узму": "ozmu",
+}
+
+
 def name_key(value: str) -> str:
     """Taqqoslash kaliti: katta-kichik harf, tire, pastki chiziq, bo'shliq va belgilar e'tiborsiz"""
     value = (value or "").lower().replace("ʻ", "'").replace("ʼ", "'").replace("`", "'").replace("‘", "'")
@@ -207,6 +217,7 @@ class UniversityService:
         key = name_key(name)
         if not key:
             return None
+        key = UNIVERSITY_ALIASES.get(key, key)
         universities = (await session.execute(select(University))).scalars().all()
 
         for u in universities:

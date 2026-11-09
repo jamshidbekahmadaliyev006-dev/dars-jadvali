@@ -179,3 +179,45 @@ async def test_pending_teacher_gets_no_reminder(db_session: AsyncSession, monkey
     monkeypatch.setattr(scheduler_jobs, "get_bot", lambda: Bot())
     await scheduler_jobs.check_and_send_lesson_reminders()
     assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_admin_statistics_count_unique_subjects_and_user_roles(db_session: AsyncSession):
+    from app.bot.handlers.admin_menu import collect_statistics, collect_user_counts
+    from app.models.enums import LessonType
+    from app.models.schedule import Schedule
+    from app.models.university import Faculty, Group, Subject, University
+
+    univ = University(name="TATU")
+    db_session.add(univ)
+    await db_session.commit()
+    fac = Faculty(name="Kiberxavfsizlik", university_id=univ.id)
+    general = Faculty(name="Umumiy", university_id=univ.id)
+    db_session.add_all([fac, general])
+    await db_session.commit()
+    g1 = Group(name="712-24", university_id=univ.id, faculty_id=fac.id)
+    g2 = Group(name="732-24", university_id=univ.id, faculty_id=fac.id)
+    s1 = Subject(name="Kriptografiya usullari", university_id=univ.id)
+    s2 = Subject(name="Kriptografiya usullari-CGM003", university_id=univ.id)  # o'sha fan, kod bilan
+    s3 = Subject(name="Tarmoq xavfsizligi", university_id=univ.id)
+    db_session.add_all([g1, g2, s1, s2, s3])
+    await db_session.commit()
+    for group, subject in [(g1, s1), (g1, s3), (g2, s2), (g2, s3)]:
+        db_session.add(Schedule(
+            university_id=univ.id, group_id=group.id, subject_id=subject.id, day_of_week=DayOfWeek.MONDAY,
+            start_time="08:00", end_time="09:30", lesson_type=LessonType.LECTURE,
+        ))
+    student = User(telegram_id=801, first_name="Talaba", role=UserRole.USER, group_id=g1.id, university_id=univ.id)
+    teacher_user = User(telegram_id=802, first_name="Ustoz", role=UserRole.USER)
+    db_session.add_all([student, teacher_user, User(telegram_id=803, first_name="Yangi", role=UserRole.USER)])
+    await db_session.commit()
+    profile = await TeacherService.submit_profile(db_session, teacher_user.id, "TATU", "Ali Valiyev", "KX")
+    await TeacherService.set_status(db_session, profile.id, TeacherStatus.APPROVED)
+    await TeacherService.replace_lessons(db_session, profile.id, [
+        {"day": "Dushanba", "subject": "kriptografiya usullari", "start_time": "08:00", "end_time": "09:30", "group": "712-24"},
+        {"day": "Seshanba", "subject": "Fizika", "start_time": "08:00", "end_time": "09:30", "group": "712-24"},
+    ])
+
+    stats = await collect_statistics(db_session)
+    assert stats == {"universities": 1, "faculties": 1, "teachers": 1, "groups": 2, "subjects": 3}
+    assert await collect_user_counts(db_session) == {"total": 3, "teachers": 1, "students": 1}

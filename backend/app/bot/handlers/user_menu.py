@@ -20,6 +20,7 @@ from app.bot.keyboards.inline import (
     reminder_minutes_keyboard,
     week_days_keyboard,
 )
+from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
 from app.bot.states import RegistrationStates, ReminderStates
 from app.bot.text_utils import (
     schedule_issues,
@@ -470,3 +471,17 @@ async def handle_profile_change_language(query: CallbackQuery, current_user: Use
 @router.message(Command("register"))
 async def handle_register_command(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
     await start_registration(message, state, session, lang_of(current_user))
+
+
+# --- Hech bir bo'lim tushunmagan xabar: javobsiz qoldirmaymiz ---
+@router.message()
+async def handle_unknown_message(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
+    lang = lang_of(current_user)
+    if not current_user.group_id:
+        from app.services.teacher_service import TeacherService
+        if not await TeacherService.get_profile(session, current_user.id):
+            from app.bot.handlers.teacher import role_keyboard
+            await message.answer(t(lang, "choose_role"), parse_mode="HTML", reply_markup=role_keyboard(lang))
+            return
+    kb = get_admin_main_keyboard(lang) if current_user.role == UserRole.ADMIN else get_user_main_keyboard(lang)
+    await message.answer(t(lang, "fallback_hint"), reply_markup=kb)

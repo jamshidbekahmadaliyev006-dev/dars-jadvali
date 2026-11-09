@@ -51,6 +51,8 @@ STATUS_LABELS: Dict[str, Dict[SubmissionStatus, str]] = {
     },
 }
 
+NL = chr(10)  # matnlarda qator ko'chishi
+
 TEXTS: Dict[str, Dict[str, str]] = {
     # Menyu tugmalari
     "btn_week": {"uz": "📅 Dars jadvali", "ru": "📅 Расписание"},
@@ -220,6 +222,7 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "ru": "👨‍🏫 <b>{name}</b>\n\n🏛 Университет: {university}\n🎓 Кафедра: {department}\n📚 {lessons} · 👥 групп: {groups}\n⏰ Напоминание: за {time} до занятия",
     },
     "issue_group": {"uz": "guruh ko'rsatilmagan", "ru": "группа не указана"},
+    "fallback_hint": {"uz": "🤔 Tushunmadim. Kerakli bo'limni pastdagi menyudan tanlang 👇", "ru": "🤔 Не понял. Выберите раздел в меню ниже 👇"},
     "start_your_data": {"uz": "📋 <b>Ma'lumotlaringiz saqlangan:</b>", "ru": "📋 <b>Ваши данные сохранены:</b>"},
     "profile_university": {"uz": "🏛 Universitet: {name}", "ru": "🏛 Университет: {name}"},
     "profile_faculty": {"uz": "🎓 Fakultet: {name}", "ru": "🎓 Факультет: {name}"},
@@ -327,20 +330,24 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "stats": {
         "uz": (
             "📈 <b>Statistika</b>\n\n"
-            "👤 Talabalar: {users} ta ({linked} tasi guruhga ulangan)\n"
-            "👥 Guruhlar: {groups} ta ({with_schedule} tasida jadval bor)\n"
-            "📚 Faol darslar: {lessons} ta\n"
-            "📥 Tekshiruv kutmoqda: {pending} ta\n"
-            "⏰ Bugungi eslatmalar: {sent} ta yuborildi, {failed} ta xato"
+            "🏛 Universitetlar: <b>{universities}</b> ta\n"
+            "🎓 Fakultetlar: <b>{faculties}</b> ta\n"
+            "👨‍🏫 O'qituvchilar: <b>{teachers}</b> ta\n"
+            "👥 Guruhlar: <b>{groups}</b> ta\n"
+            "📚 Fanlar: <b>{subjects}</b> ta <i>(har bir fan bir marta sanalgan)</i>"
         ),
         "ru": (
             "📈 <b>Статистика</b>\n\n"
-            "👤 Студенты: {users} (в группах: {linked})\n"
-            "👥 Группы: {groups} (с расписанием: {with_schedule})\n"
-            "📚 Активные занятия: {lessons}\n"
-            "📥 Ждут проверки: {pending}\n"
-            "⏰ Напоминания сегодня: отправлено {sent}, ошибок {failed}"
+            "🏛 Университеты: <b>{universities}</b>\n"
+            "🎓 Факультеты: <b>{faculties}</b>\n"
+            "👨‍🏫 Преподаватели: <b>{teachers}</b>\n"
+            "👥 Группы: <b>{groups}</b>\n"
+            "📚 Предметы: <b>{subjects}</b> <i>(каждый предмет учтён один раз)</i>"
         ),
+    },
+    "users_stats": {
+        "uz": "👤 <b>Foydalanuvchilar</b>"+NL+NL+"👥 Jami: <b>{total}</b> ta"+NL+"👨‍🏫 O'qituvchilar: <b>{teachers}</b> ta"+NL+"🎓 Talabalar: <b>{students}</b> ta",
+        "ru": "👤 <b>Пользователи</b>"+NL+NL+"👥 Всего: <b>{total}</b>"+NL+"👨‍🏫 Преподаватели: <b>{teachers}</b>"+NL+"🎓 Студенты: <b>{students}</b>",
     },
     "new_schedule": {"uz": "📸 <b>Yangi jadval #{id}</b>", "ru": "📸 <b>Новое расписание #{id}</b>"},
     "admin_saved": {"uz": "✅ Saqlandi", "ru": "✅ Сохранено"},

@@ -122,7 +122,7 @@ async def test_admin_statistics_permission_granted(db_session: AsyncSession):
     mock_msg.answer.assert_called_once()
     args, _ = mock_msg.answer.call_args
     assert "Statistika" in args[0]
-    assert "Talabalar" in args[0]
+    assert "Universitetlar" in args[0] and "Fanlar" in args[0]
 
 
 @pytest.mark.asyncio
@@ -448,3 +448,24 @@ def test_reminder_shows_lesson_date():
     text = format_reminder(sched, 15, "uz", lesson_date=date(2026, 11, 9))
     assert "📅 9-noyabr 2026, Dushanba" in text
     assert "08:00–09:30" in text
+
+
+async def test_russian_university_abbreviation_matches_tatu(db_session: AsyncSession):
+    from app.models.university import University
+    from app.services.university_service import UniversityService
+
+    tatu = University(name="Toshkent Axborot Texnologiyalari Universiteti")
+    db_session.add(tatu)
+    await db_session.commit()
+    for typed in ["ТУИТ", "TUIT", "туит"]:
+        found = await UniversityService.match_university(db_session, typed)
+        assert found is not None and found.id == tatu.id, typed
+
+
+async def test_unknown_message_gets_menu_hint():
+    from app.bot.handlers.user_menu import handle_unknown_message
+
+    user = User(id=5, telegram_id=5005, first_name="T", role=UserRole.USER, group_id=1, language_code="uz")
+    msg = make_mock_message("salom", 5005)
+    await handle_unknown_message(msg, current_user=user, session=AsyncMock(), state=AsyncMock())
+    assert "Tushunmadim" in msg.answer.call_args.args[0]

@@ -16,13 +16,15 @@ from app.bot.states import AnnouncementStates
 from app.bot.text_utils import esc
 from app.core.config import settings
 from app.core.logging import logger
-from app.models.enums import NotificationType, SubmissionStatus, UserRole
+from app.models.enums import NotificationType, SubmissionStatus, TeacherStatus, UserRole
 from app.models.log import Announcement, NotificationLog
 from app.models.schedule import Schedule, ScheduleSubmission
-from app.models.university import Group
+from app.models.teacher import TeacherLesson, TeacherProfile
+from app.models.university import Faculty, Group, Subject, University
 from app.models.user import User
 from app.schemas.schedule import ScheduleSubmissionReview
 from app.services.schedule_service import ScheduleService, normalize_subject_name
+from app.services.university_service import GENERAL_FACULTY_NAME, name_key
 from app.services.user_service import UserService
 
 router = Router(name="admin_menu")
@@ -50,53 +52,47 @@ async def handle_switch_back_to_admin(message: Message, current_user: User):
     await message.answer(t(lang, "admin_menu_opened"), reply_markup=get_admin_main_keyboard(lang))
 
 
+async def collect_statistics(session: AsyncSession) -> dict:
+    """Universitet, fakultet, o'qituvchi, guruh va takrorlanmas fanlar soni"""
+    universities = await session.scalar(select(func.count(University.id))) or 0
+    faculties = await session.scalar(
+        select(func.count(Faculty.id)).where(Faculty.name != GENERAL_FACULTY_NAME)
+    ) or 0
+    teachers = await session.scalar(
+        select(func.count(TeacherProfile.id)).where(TeacherProfile.status == TeacherStatus.APPROVED)
+    ) or 0
+    groups = await session.scalar(select(func.count(Group.id))) or 0
+
+    # Fanlar: guruhlardagi darslar emas, har bir fan bitta. "Matematika (4 kr)-MAT001", "matematika"
+    # va o'qituvchi jadvalidagi "Matematika" - hammasi bitta fan sifatida sanaladi.
+    names = (await session.execute(
+        select(Subject.name).join(Schedule, Schedule.subject_id == Subject.id).where(Schedule.is_active == True)
+    )).scalars().all()
+    names += (await session.execute(
+        select(TeacherLesson.subject).where(TeacherLesson.is_active == True)
+    )).scalars().all()
+    subjects = len({name_key(normalize_subject_name(n)[0]) for n in names if n and name_key(n)})
+
+    return {"universities": universities, "faculties": faculties, "teachers": teachers, "groups": groups, "subjects": subjects}
+
+
+async def collect_user_counts(session: AsyncSession) -> dict:
+    total = await session.scalar(select(func.count(User.id))) or 0
+    teacher_ids = select(TeacherProfile.user_id).where(TeacherProfile.status == TeacherStatus.APPROVED)
+    teachers = await session.scalar(select(func.count()).select_from(teacher_ids.subquery())) or 0
+    students = await session.scalar(
+        select(func.count(User.id)).where(User.group_id.is_not(None), User.id.not_in(teacher_ids))
+    ) or 0
+    return {"total": total, "teachers": teachers, "students": students}
+
+
 @router.message(F.text.in_(labels("btn_stats")))
 async def handle_admin_statistics(message: Message, current_user: User, session: AsyncSession):
     lang = lang_of(current_user)
     if not is_admin_check(current_user):
         await message.answer(t(lang, "admin_only"))
         return
-
-    total_users = await session.scalar(select(func.count(User.id))) or 0
-    users_with_group = await session.scalar(select(func.count(User.id)).where(User.group_id.is_not(None))) or 0
-    total_groups = await session.scalar(select(func.count(Group.id))) or 0
-    groups_with_schedule = await session.scalar(
-        select(func.count(func.distinct(Schedule.group_id))).where(Schedule.is_active == True)
-    ) or 0
-    total_lessons = await session.scalar(select(func.count(Schedule.id)).where(Schedule.is_active == True)) or 0
-    pending = await session.scalar(
-        select(func.count(ScheduleSubmission.id)).where(ScheduleSubmission.status == SubmissionStatus.ADMIN_REVIEW)
-    ) or 0
-
-    # created_at UTC'da saqlanadi, kun esa mahalliy vaqt bo'yicha hisoblanadi
-    tz = pytz.timezone(settings.TIMEZONE)
-    today_start = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc)
-    reminder_filter = (
-        NotificationLog.notification_type == NotificationType.LESSON_REMINDER,
-        NotificationLog.created_at >= today_start,
-    )
-    sent_today = await session.scalar(
-        select(func.count(NotificationLog.id)).where(*reminder_filter, NotificationLog.is_success == True)
-    ) or 0
-    failed_today = await session.scalar(
-        select(func.count(NotificationLog.id)).where(*reminder_filter, NotificationLog.is_success == False)
-    ) or 0
-
-    await message.answer(
-        t(
-            lang,
-            "stats",
-            users=total_users,
-            linked=users_with_group,
-            groups=total_groups,
-            with_schedule=groups_with_schedule,
-            lessons=total_lessons,
-            pending=pending,
-            sent=sent_today,
-            failed=failed_today,
-        ),
-        parse_mode="HTML",
-    )
+    await message.answer(t(lang, "stats", **await collect_statistics(session)), parse_mode="HTML")
 
 
 def _submission_caption(
@@ -253,22 +249,11 @@ async def handle_admin_groups(message: Message, current_user: User, session: Asy
 
 @router.message(F.text.in_(labels("btn_users")))
 async def handle_admin_users(message: Message, current_user: User, session: AsyncSession):
-    if not is_admin_check(current_user):
-        return
     lang = lang_of(current_user)
-
-    total = await session.scalar(select(func.count(User.id))) or 0
-    users = (await session.execute(
-        select(User).options(selectinload(User.group)).order_by(User.id.desc()).limit(15)
-    )).scalars().all()
-
-    lines = [t(lang, "users_title", total=total)]
-    for u in users:
-        icon = "👑" if u.role == UserRole.ADMIN else "🎓"
-        username = f" @{esc(u.username)}" if u.username else ""
-        group = esc(u.group.name) if u.group else t(lang, "no_group")
-        lines.append(f"{icon} {esc(u.first_name)}{username} — {group}")
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    if not is_admin_check(current_user):
+        await message.answer(t(lang, "admin_only"))
+        return
+    await message.answer(t(lang, "users_stats", **await collect_user_counts(session)), parse_mode="HTML")
 
 
 async def _announcement_recipients(session: AsyncSession, university_id: int) -> list:
