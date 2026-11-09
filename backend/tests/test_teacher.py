@@ -221,7 +221,9 @@ async def test_admin_statistics_count_unique_subjects_and_user_roles(db_session:
 
     stats = await collect_statistics(db_session)
     assert stats == {"universities": 1, "faculties": 1, "teachers": 1, "groups": 2, "subjects": 3}
-    assert await collect_user_counts(db_session) == {"total": 3, "teachers": 1, "students": 1}
+    counts = await collect_user_counts(db_session)
+    assert counts == {"total": 3, "teachers": 1, "pending": 0, "students": 1, "unregistered": 1}
+    assert counts["teachers"] + counts["pending"] + counts["students"] + counts["unregistered"] == counts["total"]
 
 
 @pytest.mark.asyncio
@@ -241,10 +243,13 @@ async def test_admin_teachers_section_shows_accounts(db_session: AsyncSession):
     assert "Tasdiqlangan: <b>1</b>" in texts[0] and "Tasdiq kutmoqda: <b>1</b>" in texts[0]
     approved_text = texts[1]
     assert "Karimov Anvar Rustamovich" in approved_text
-    assert 'href="tg://user?id=951"' in approved_text and "@anvar_k" in approved_text
+    assert 'href="https://t.me/anvar_k"' in approved_text and "@anvar_k" in approved_text
+    assert "Kiberxavfsizlik" in approved_text
+    # Ortiqcha ma'lumot yo'q: universitet, ID, darslar soni ko'rsatilmaydi
+    assert "TATU" not in approved_text and "ID " not in approved_text and "dars" not in approved_text
     # Kutayotgan o'qituvchi alohida, tasdiqlash tugmalari bilan
     last = msg.answer.call_args_list[-1]
-    assert "Aliyev Dilshod" in last.args[0] and "ID 952" in last.args[0]
+    assert "Aliyev Dilshod" in last.args[0] and 'href="tg://user?id=952"' in last.args[0]
     buttons = [b.callback_data for row in last.kwargs["reply_markup"].inline_keyboard for b in row]
     assert buttons == [f"tch_ok_{p2.id}", f"tch_no_{p2.id}"]
 
@@ -255,3 +260,35 @@ async def test_non_admin_cannot_open_teachers_section(db_session: AsyncSession):
     msg = _message("👨‍🏫 O'qituvchilar", 960)
     await teacher_handlers.admin_teachers(msg, student, db_session)
     assert msg.answer.call_count == 1 and "administrator" in msg.answer.call_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_user_categories_always_add_up_to_total(db_session: AsyncSession):
+    from app.bot.handlers.admin_menu import _users_message, collect_user_counts
+    from app.models.university import Faculty, Group, University
+
+    univ = University(name="TATU")
+    db_session.add(univ)
+    await db_session.commit()
+    fac = Faculty(name="KX", university_id=univ.id)
+    db_session.add(fac)
+    await db_session.commit()
+    grp = Group(name="712-24", university_id=univ.id, faculty_id=fac.id)
+    db_session.add(grp)
+    await db_session.commit()
+    users = [User(telegram_id=1000 + i, first_name=f"U{i}", role=UserRole.USER) for i in range(7)]
+    users[0].group_id = users[1].group_id = grp.id  # 2 talaba
+    users[2].group_id = grp.id                      # talaba, keyin o'qituvchi bo'ldi
+    db_session.add_all(users)
+    await db_session.commit()
+    p = await TeacherService.submit_profile(db_session, users[2].id, "TATU", "Ali Valiyev", "KX")
+    await TeacherService.set_status(db_session, p.id, TeacherStatus.APPROVED)
+    await TeacherService.submit_profile(db_session, users[3].id, "TATU", "Vali Aliyev", "KX")  # kutmoqda
+    rejected = await TeacherService.submit_profile(db_session, users[4].id, "TATU", "Rad Etilgan", "KX")
+    await TeacherService.set_status(db_session, rejected.id, TeacherStatus.REJECTED)
+
+    c = await collect_user_counts(db_session)
+    assert c == {"total": 7, "teachers": 1, "pending": 1, "students": 2, "unregistered": 3}
+    assert c["teachers"] + c["pending"] + c["students"] + c["unregistered"] == c["total"]
+    text = await _users_message(db_session, "uz")
+    assert "Jami: <b>7</b>" in text and "tugatmagan: <b>3</b>" in text and "kutayotgan" in text

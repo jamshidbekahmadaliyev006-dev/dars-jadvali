@@ -77,13 +77,33 @@ async def collect_statistics(session: AsyncSession) -> dict:
 
 
 async def collect_user_counts(session: AsyncSession) -> dict:
+    """
+    Har bir foydalanuvchi aniq BITTA toifaga tushadi, shuning uchun toifalar yig'indisi = jami:
+    tasdiqlangan o'qituvchi > tasdiq kutayotgan o'qituvchi > talaba (guruhi bor) > ro'yxatdan o'tmagan.
+    """
     total = await session.scalar(select(func.count(User.id))) or 0
-    teacher_ids = select(TeacherProfile.user_id).where(TeacherProfile.status == TeacherStatus.APPROVED)
-    teachers = await session.scalar(select(func.count()).select_from(teacher_ids.subquery())) or 0
-    students = await session.scalar(
-        select(func.count(User.id)).where(User.group_id.is_not(None), User.id.not_in(teacher_ids))
+    approved_ids = select(TeacherProfile.user_id).where(TeacherProfile.status == TeacherStatus.APPROVED)
+    pending_ids = select(TeacherProfile.user_id).where(TeacherProfile.status == TeacherStatus.PENDING)
+    teachers = await session.scalar(select(func.count(User.id)).where(User.id.in_(approved_ids))) or 0
+    pending = await session.scalar(
+        select(func.count(User.id)).where(User.id.in_(pending_ids), User.id.not_in(approved_ids))
     ) or 0
-    return {"total": total, "teachers": teachers, "students": students}
+    students = await session.scalar(
+        select(func.count(User.id)).where(
+            User.group_id.is_not(None), User.id.not_in(approved_ids), User.id.not_in(pending_ids)
+        )
+    ) or 0
+    unregistered = total - teachers - pending - students
+    return {"total": total, "teachers": teachers, "pending": pending, "students": students, "unregistered": unregistered}
+
+
+async def _users_message(session: AsyncSession, lang: str) -> str:
+    c = await collect_user_counts(session)
+    text = t(lang, "users_stats", total=c["total"], teachers=c["teachers"], students=c["students"])
+    if c["pending"]:
+        text += NL + t(lang, "users_pending", n=c["pending"])
+    text += NL + t(lang, "users_unregistered", n=c["unregistered"])
+    return text
 
 
 def _live_footer(lang: str) -> str:
@@ -100,7 +120,7 @@ async def _stats_text(session: AsyncSession, lang: str) -> str:
 
 
 async def _users_text(session: AsyncSession, lang: str) -> str:
-    return t(lang, "users_stats", **await collect_user_counts(session)) + _live_footer(lang)
+    return await _users_message(session, lang) + _live_footer(lang)
 
 
 @router.message(F.text.in_(labels("btn_stats")))

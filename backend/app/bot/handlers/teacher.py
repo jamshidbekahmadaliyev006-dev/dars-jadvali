@@ -71,13 +71,11 @@ class PendingTeacher(Filter):
 
 
 def telegram_account(user: User) -> str:
-    """Bosiladigan akkaunt havolasi + @username + ID: admin o'qituvchi kimligini aniq bilsin"""
-    full = " ".join(p for p in (user.first_name, user.last_name) if p) or str(user.telegram_id)
-    parts = [f'<a href="tg://user?id={user.telegram_id}">{esc(full)}</a>']
+    """Bosiladigan Telegram nik: @username bo'lsa t.me havolasi, bo'lmasa ismi orqali profilga havola"""
     if user.username:
-        parts.append(f"@{esc(user.username)}")
-    parts.append(f"ID {user.telegram_id}")
-    return " · ".join(parts)
+        return f'<a href="https://t.me/{esc(user.username)}">@{esc(user.username)}</a>'
+    full = " ".join(p for p in (user.first_name, user.last_name) if p) or "Telegram"
+    return f'<a href="tg://user?id={user.telegram_id}">{esc(full)}</a>'
 
 
 def role_keyboard(lang: str) -> InlineKeyboardMarkup:
@@ -214,18 +212,14 @@ def _review_kb(lang: str, profile_id: int) -> InlineKeyboardMarkup:
 
 
 async def _teacher_card(session: AsyncSession, profile: TeacherProfile, user: User, lang: str) -> str:
-    university = await session.get(University, profile.university_id) if profile.university_id else None
-    lessons = await TeacherService.get_lessons(session, profile.id)
+    """Qisqa karta: ism-familiya, fakultet, bosiladigan Telegram nik"""
     icon = {TeacherStatus.APPROVED: "✅", TeacherStatus.PENDING: "⏳"}.get(profile.status, "❌")
     return t(
         lang, "teacher_card",
         icon=icon,
         name=esc(profile.full_name),
-        university=esc(university.name if university else "—"),
         department=esc(profile.department or "—"),
         who=telegram_account(user),
-        lessons=format_lesson_count(len(lessons), lang),
-        groups=len({l.group_name for l in lessons if l.group_name}),
     )
 
 
@@ -259,7 +253,8 @@ async def admin_teachers(message: Message, current_user: User, session: AsyncSes
         await message.answer(t(lang, "teachers_pending_title"), parse_mode="HTML")
         for p, u in pending[:20]:
             await message.answer(
-                await _teacher_card(session, p, u, lang), parse_mode="HTML", reply_markup=_review_kb(lang, p.id)
+                await _teacher_card(session, p, u, lang), parse_mode="HTML", reply_markup=_review_kb(lang, p.id),
+                disable_web_page_preview=True,
             )
 
 

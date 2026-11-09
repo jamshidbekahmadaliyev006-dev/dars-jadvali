@@ -193,8 +193,8 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "ru": "👨‍🏫 <b>Преподаватели</b>"+NL+NL+"✅ Подтверждены: <b>{approved}</b>"+NL+"⏳ Ждут подтверждения: <b>{pending}</b>"+NL+"❌ Отклонены: <b>{rejected}</b>",
     },
     "teacher_card": {
-        "uz": "{icon} <b>{name}</b>"+NL+"🏛 {university} · 🎓 {department}"+NL+"📱 {who}"+NL+"📚 {lessons} · 👥 {groups} ta guruh",
-        "ru": "{icon} <b>{name}</b>"+NL+"🏛 {university} · 🎓 {department}"+NL+"📱 {who}"+NL+"📚 {lessons} · 👥 групп: {groups}",
+        "uz": "{icon} <b>{name}</b>"+NL+"🎓 {department}"+NL+"📱 {who}",
+        "ru": "{icon} <b>{name}</b>"+NL+"🎓 {department}"+NL+"📱 {who}",
     },
     "teachers_pending_title": {"uz": "⏳ <b>Tasdiq kutayotganlar:</b>", "ru": "⏳ <b>Ждут подтверждения:</b>"},
     "teachers_approved_title": {"uz": "✅ <b>Tasdiqlangan o'qituvchilar:</b>", "ru": "✅ <b>Подтверждённые преподаватели:</b>"},
@@ -358,6 +358,8 @@ TEXTS: Dict[str, Dict[str, str]] = {
     },
     "live_at": {"uz": "🕒 Hozirgi holat: {time}", "ru": "🕒 Актуально на: {time}"},
     "btn_refresh": {"uz": "🔄 Yangilash", "ru": "🔄 Обновить"},
+    "users_pending": {"uz": "⏳ Tasdiq kutayotgan o'qituvchilar: <b>{n}</b> ta", "ru": "⏳ Преподаватели ждут подтверждения: <b>{n}</b>"},
+    "users_unregistered": {"uz": "🚪 Ro'yxatdan o'tishni tugatmagan: <b>{n}</b> ta", "ru": "🚪 Не завершили регистрацию: <b>{n}</b>"},
     "users_stats": {
         "uz": "👤 <b>Foydalanuvchilar</b>"+NL+NL+"👥 Jami: <b>{total}</b> ta"+NL+"👨‍🏫 O'qituvchilar: <b>{teachers}</b> ta"+NL+"🎓 Talabalar: <b>{students}</b> ta",
         "ru": "👤 <b>Пользователи</b>"+NL+NL+"👥 Всего: <b>{total}</b>"+NL+"👨‍🏫 Преподаватели: <b>{teachers}</b>"+NL+"🎓 Студенты: <b>{students}</b>",
