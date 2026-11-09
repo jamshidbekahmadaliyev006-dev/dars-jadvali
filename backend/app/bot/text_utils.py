@@ -242,3 +242,23 @@ def format_teacher_reminder(lesson: Any, minutes_left: int, lang: str, lesson_da
     if lesson.room:
         lines.append(f"📍 {esc(lesson.room)}")
     return "\n".join(lines)
+
+
+
+import re as _re
+
+_TIME_TOKEN = _re.compile(r"(?<!\d)([01]?\d|2[0-3])[:.][0-5]\d(?!\d)")
+MIN_TEXT_SCHEDULE_LESSONS = 3
+
+
+def looks_like_full_schedule(text: str) -> bool:
+    """
+    Qo'lda yozilgan matn jadvalga o'xshaydimi: kamida 3 ta darsga yetarli (har bir dars qatorida vaqt bor).
+    "Dushanba matematika" kabi bir-ikki qator yoki oddiy gap jadval deb qabul qilinmaydi.
+    """
+    lines = [ln for ln in (text or "").splitlines() if ln.strip()]
+    with_time = sum(1 for ln in lines if _TIME_TOKEN.search(ln))
+    if with_time < MIN_TEXT_SCHEDULE_LESSONS and len(lines) <= 1:
+        # Bitta uzun qator ichida ";" yoki "," bilan ajratilgan darslar
+        with_time = len(_TIME_TOKEN.findall(text or "")) // 2
+    return with_time >= MIN_TEXT_SCHEDULE_LESSONS

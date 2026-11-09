@@ -7,7 +7,7 @@ from app.bot.i18n import DEFAULT_LANG, TEXTS, labels, lang_of, t
 from app.bot.keyboards.inline import week_days_keyboard
 from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
 from app.bot.states import RegistrationStates
-from app.bot.text_utils import esc, format_weekly_schedule
+from app.bot.text_utils import esc, format_weekly_schedule, looks_like_full_schedule
 from app.models.enums import UserRole
 from app.models.user import User
 from app.services.schedule_service import ScheduleService
@@ -119,8 +119,12 @@ def _is_schedule_text(message: Message) -> bool:
 
 @router.message(RegistrationStates.waiting_schedule, F.text, _is_schedule_text)
 async def process_schedule_text(message: Message, state: FSMContext, current_user: User, session: AsyncSession) -> None:
-    """Talaba jadvalni yozib yubordi: AI matndan darslarni ajratib oladi"""
+    """Talaba jadvalni yozib yubordi: AI matndan darslarni ajratib oladi (faqat to'liq jadval bo'lsa)"""
     text = (message.text or "").strip()
+    if not looks_like_full_schedule(text):
+        # Holat saqlanadi: talaba to'liq jadval yoki rasm yuborishi mumkin
+        await message.answer(t(lang_of(current_user), "schedule_text_incomplete"), parse_mode="HTML")
+        return
     from app.bot.handlers.user_menu import _is_change_request
     change_request = _is_change_request(await state.get_data())
     await state.clear()

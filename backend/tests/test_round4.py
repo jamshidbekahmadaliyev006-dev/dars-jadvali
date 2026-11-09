@@ -105,3 +105,27 @@ async def test_new_user_gets_15_minute_reminder(db_session: AsyncSession):
     from app.services.schedule_service import ScheduleService
     setting = await ScheduleService.get_or_create_reminder_setting(db_session, seen["current_user"].id)
     assert setting.minutes_before == 15 and setting.is_enabled is True
+
+
+def test_only_a_full_text_schedule_is_accepted():
+    from app.bot.text_utils import looks_like_full_schedule as full
+
+    three = "Dushanba 08:00-09:30 Matematika A-327\nDushanba 09:30-11:00 Fizika\nSeshanba 8.00-9.30 Ingliz tili"
+    assert full(three)
+    assert full("Du 8:00-9:30 Mat; Du 9:30-11:00 Fiz; Se 8:00-9:30 Ing")
+    for junk in ("Matematika", "salom", "712-24", "Dushanba matematika 8:00", "Dushanba 08:00 Matematika\nSeshanba 09:00 Fizika"):
+        assert not full(junk), junk
+
+
+@pytest.mark.asyncio
+async def test_incomplete_text_after_registration_is_not_treated_as_schedule(db_session: AsyncSession):
+    from app.bot.handlers import registration
+
+    user = User(telegram_id=4040, first_name="T", role=UserRole.USER, language_code="uz")
+    msg = MagicMock(spec=Message)
+    msg.text = "Matematika"
+    msg.answer = AsyncMock()
+    state = AsyncMock()
+    await registration.process_schedule_text(msg, state, user, db_session)
+    assert "to'liq jadval emas" in msg.answer.call_args.args[0]
+    state.clear.assert_not_awaited()  # holat saqlandi - rasm yoki to'liq matn yuborish mumkin

@@ -27,6 +27,7 @@ from app.bot.text_utils import (
     format_date,
     format_teacher_day,
     format_teacher_week,
+    looks_like_full_schedule,
     schedule_issues,
     show_typing,
 )
@@ -393,6 +394,9 @@ def _is_schedule_text(message: Message) -> bool:
 
 @router.message(TeacherStates.waiting_schedule, F.text, _is_schedule_text, ApprovedTeacher())
 async def teacher_schedule_text(message: Message, state: FSMContext, current_user: User, session: AsyncSession, teacher: TeacherProfile):
+    if not looks_like_full_schedule(message.text or ""):
+        await message.answer(t(lang_of(current_user), "schedule_text_incomplete"), parse_mode="HTML")
+        return
     await state.clear()
     await _save_teacher_schedule(message, current_user, teacher, session, text=message.text.strip())
 
@@ -507,6 +511,9 @@ async def teacher_profile(message: Message, current_user: User, session: AsyncSe
 async def teacher_free_text(message: Message, state: FSMContext, current_user: User, session: AsyncSession, teacher: TeacherProfile):
     """Tasdiqlangandan keyin jadvali hali yo'q o'qituvchi yozgan matn - bu uning jadvali"""
     if await TeacherService.get_lessons(session, teacher.id):
+        return
+    if not looks_like_full_schedule(message.text or ""):
+        await message.answer(t(lang_of(current_user), "schedule_text_incomplete"), parse_mode="HTML")
         return
     await state.clear()
     await _save_teacher_schedule(message, current_user, teacher, session, text=message.text.strip())
