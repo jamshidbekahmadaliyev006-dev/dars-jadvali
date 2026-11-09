@@ -351,4 +351,5 @@ EN = {
     'block_admin_refused': 'Cannot block an administrator.',
     'btn_block': '🚫 Block',
     'schedule_blurry': '📷 <b>The photo looks small</b> - a room number or time may have been read incorrectly.\n\nPlease check the timetable. If something is wrong, resend it <b>closer and sharper</b>: zoom in on the table on your phone and take a screenshot, or send the image as a <b>file</b> (📎 → File).',
+    'schedule_partial': '⚠️ <b>This timetable is incomplete</b>, so it was not saved.\n\nThe photo only shows: {days} ({lessons}).\n\nPlease send the <b>full weekly timetable</b> (Monday to Saturday, all days). If it does not fit in one photo, send several photos <b>together</b> (as an album) - the bot will read them as one timetable.',
 }

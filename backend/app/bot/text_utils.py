@@ -262,3 +262,25 @@ def looks_like_full_schedule(text: str) -> bool:
         # Bitta uzun qator ichida ";" yoki "," bilan ajratilgan darslar
         with_time = len(_TIME_TOKEN.findall(text or "")) // 2
     return with_time >= MIN_TEXT_SCHEDULE_LESSONS
+
+
+
+MIN_WEEK_DAYS = 3        # talaba jadvali: kamida shuncha xil kun
+MIN_WEEK_LESSONS = 5     # va kamida shuncha dars bo'lishi kerak
+MIN_TEACHER_DAYS = 2     # o'qituvchi jadvali kamroq kunli bo'lishi mumkin
+MIN_TEACHER_LESSONS = 3
+
+
+def week_coverage(lessons):
+    """(topilgan kunlar tartib bilan, darslar soni). Kun nomi tanilmagan darslar kunga hisoblanmaydi."""
+    from app.services.schedule_service import resolve_day_of_week
+
+    days = {resolve_day_of_week(item.get("day")) for item in lessons}
+    days.discard(None)
+    ordered = [d for d in DayOfWeek if d in days]
+    return ordered, len(lessons)
+
+
+def is_full_week(lessons, min_days: int = MIN_WEEK_DAYS, min_lessons: int = MIN_WEEK_LESSONS) -> bool:
+    days, count = week_coverage(lessons)
+    return len(days) >= min_days and count >= min_lessons

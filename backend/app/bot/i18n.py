@@ -165,6 +165,10 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "uz": "👆 <b>Jadval #{id}</b> — {n} ta rasm. Tekshirib, qaror qiling:",
         "ru": "👆 <b>Расписание #{id}</b> — фото: {n}. Проверьте и решите:",
     },
+    "schedule_partial": {
+        "uz": "⚠️ <b>Bu jadval to'liq emas</b>, shuning uchun saqlanmadi."+NL+NL+"Rasmda faqat: {days} ({lessons}) ko'rindi."+NL+NL+"Iltimos, <b>butun haftalik jadvalni</b> (Dushanbadan Shanbagacha, hamma kunlar) yuboring. Jadval bir rasmga sig'masa, bir nechta rasmni <b>birga</b> (albom qilib) yuboring - bot ularni bitta jadval qilib o'qiydi.",
+        "ru": "⚠️ <b>Расписание неполное</b>, поэтому не сохранено."+NL+NL+"На фото видно только: {days} ({lessons})."+NL+NL+"Пожалуйста, отправьте <b>расписание на всю неделю</b> (с понедельника по субботу, все дни). Если оно не помещается на одно фото, отправьте несколько фото <b>вместе</b> (альбомом) - бот прочитает их как одно расписание.",
+    },
     "schedule_blurry": {
         "uz": "📷 <b>Rasm mayda ko'rinyapti</b> - xona raqami yoki vaqt noto'g'ri o'qilgan bo'lishi mumkin."+NL+NL+"Jadvalni tekshiring. Xato bo'lsa, <b>yaqinroqdan, tiniqroq</b> qayta yuboring: jadvalni telefonda kattalashtirib skrinshot oling yoki rasmni <b>fayl</b> qilib yuboring (📎 → Fayl).",
         "ru": "📷 <b>Фото выглядит мелким</b> - номер аудитории или время могли прочитаться неточно."+NL+NL+"Проверьте расписание. Если есть ошибки, отправьте <b>крупнее и чётче</b>: увеличьте таблицу на телефоне и сделайте скриншот или отправьте фото <b>файлом</b> (📎 → Файл).",

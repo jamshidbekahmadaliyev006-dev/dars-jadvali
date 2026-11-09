@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.handlers.registration import start_registration
 from app.bot.album import collect_album, looks_too_small, pack_file_ids, send_submission_files
-from app.bot.i18n import NL, DAY_LABELS, STATUS_LABELS, format_counts, format_minutes, labels, lang_of, t
+from app.bot.i18n import NL, format_lesson_count, DAY_LABELS, STATUS_LABELS, format_counts, format_minutes, labels, lang_of, t
 from app.bot.keyboards.inline import (
     admin_review_keyboard,
     language_keyboard,
@@ -30,6 +30,8 @@ from app.bot.text_utils import (
     show_typing,
     esc,
     format_date,
+    is_full_week,
+    week_coverage,
     format_day_schedule,
     format_weekly_schedule,
     schedule_summary,
@@ -395,6 +397,20 @@ async def process_schedule_input(
             await _notify_admins(
                 message, session, current_user, submission.id, file_id, "admin_read_failed",
                 file_ids=file_ids, is_document=is_document,
+            )
+            return
+
+        # Faqat bitta kun yoki bir-ikki dars (kesilgan rasm) butun guruh jadvali deb SAQLANMAYDI
+        if not is_full_week(lessons):
+            days, count = week_coverage(lessons)
+            processed.status = SubmissionStatus.NEEDS_CORRECTION
+            processed.image_file_id = "-"
+            processed.image_url = None
+            await session.commit()
+            await loading_msg.edit_text(
+                t(lang, "schedule_partial",
+                  days=", ".join(DAY_LABELS[lang][d] for d in days) or "—", lessons=format_lesson_count(count, lang)),
+                parse_mode="HTML",
             )
             return
 

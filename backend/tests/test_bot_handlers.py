@@ -511,8 +511,9 @@ async def test_schedule_change_always_goes_to_admin_review(db_session: AsyncSess
     class RealAI:  # Mock emas - avtomatik tasdiqlash shartini sinash uchun
         async def extract_schedule_from_text(self, text):
             from app.schemas.ai import ExtractedLessonItem, ExtractedScheduleResult
-            return ExtractedScheduleResult(lessons=[ExtractedLessonItem(
-                day="Dushanba", subject="Matematika", start_time="08:00", end_time="09:30", room="A-1", building="A")])
+            return ExtractedScheduleResult(lessons=[
+                ExtractedLessonItem(day=day, subject=f"Fan {i}", start_time=f"{8 + i}:00", end_time=f"{9 + i}:00", room="A-1", building="A")
+                for i, day in enumerate(["Dushanba", "Dushanba", "Seshanba", "Seshanba", "Chorshanba", "Payshanba"])])
 
     monkeypatch.setattr("app.services.ai_service.get_ai_provider", lambda: RealAI())
     monkeypatch.setattr(user_menu, "get_ai_provider", lambda: RealAI())

@@ -12,6 +12,17 @@ from app.services.teacher_service import TeacherService
 from app.services.user_service import UserService
 
 
+def _message(text="", uid=1):
+    from aiogram.types import Chat
+    m = MagicMock(spec=Message)
+    m.text = text
+    m.chat = MagicMock(spec=Chat)
+    m.chat.id = uid
+    m.answer = AsyncMock()
+    m.bot = MagicMock(send_message=AsyncMock(), send_chat_action=AsyncMock(), send_media_group=AsyncMock())
+    return m
+
+
 @pytest.mark.asyncio
 async def test_menu_button_cancels_pending_input_state():
     state = AsyncMock()
@@ -144,3 +155,65 @@ def test_small_images_are_detected_without_a_graphics_library():
     assert looks_too_small([png(572, 1280)]) is True      # tor skrinshot - mayda yozuv
     assert looks_too_small([png(1080, 1920)]) is False
     assert looks_too_small([b"not an image"]) is False
+
+
+def test_week_coverage_rules():
+    from app.bot.text_utils import MIN_TEACHER_DAYS, MIN_TEACHER_LESSONS, is_full_week, week_coverage
+
+    one_day = [{"day": "Payshanba", "subject": s} for s in ("A", "B", "C")]     # sizning holatingiz: 1 kun, 3 dars
+    assert not is_full_week(one_day)
+    assert [d.value for d in week_coverage(one_day)[0]] == ["THURSDAY"]
+    week = [{"day": d, "subject": "x"} for d in ("Dushanba", "Dushanba", "Seshanba", "Chorshanba", "Juma")]
+    assert is_full_week(week)
+    assert not is_full_week([{"day": "Dushanba"}] * 6)                          # 6 dars, lekin 1 kun
+    assert not is_full_week([{"day": "Du"}, {"day": "Se"}])                     # kam
+    assert is_full_week([{"day": "Dushanba"}, {"day": "Seshanba"}, {"day": "Seshanba"}], MIN_TEACHER_DAYS, MIN_TEACHER_LESSONS)
+
+
+@pytest.mark.asyncio
+async def test_single_day_photo_is_not_saved_as_the_group_schedule(db_session: AsyncSession, monkeypatch):
+    from app.bot.handlers import user_menu
+    from app.models.enums import SubmissionStatus
+    from app.models.schedule import Schedule, ScheduleSubmission
+    from app.models.university import Faculty, Group, University
+    from sqlalchemy import select as sa_select
+
+    univ = University(name="TATU")
+    db_session.add(univ)
+    await db_session.commit()
+    fac = Faculty(name="KX", university_id=univ.id)
+    db_session.add(fac)
+    await db_session.commit()
+    grp = Group(name="711-24", university_id=univ.id, faculty_id=fac.id)
+    db_session.add(grp)
+    await db_session.commit()
+    student = User(telegram_id=6060, first_name="Nilufar", role=UserRole.USER, university_id=univ.id,
+                   faculty_id=fac.id, group_id=grp.id, language_code="uz")
+    db_session.add(student)
+    await db_session.commit()
+
+    class OneDayAI:
+        async def extract_schedule_from_image(self, data, name="x.jpg"):
+            from app.schemas.ai import ExtractedLessonItem, ExtractedScheduleResult
+            return ExtractedScheduleResult(lessons=[
+                ExtractedLessonItem(day="Payshanba", subject=s, start_time=t_, end_time="09:30", room="B-213", building="B")
+                for s, t_ in (("Matematik modellashtirish", "08:00"), ("Sonli usullar", "09:30"), ("Hisoblash paketlari", "11:00"))])
+
+    monkeypatch.setattr("app.services.ai_service.get_ai_provider", lambda: OneDayAI())
+    monkeypatch.setattr(user_menu, "get_ai_provider", lambda: OneDayAI())
+    monkeypatch.setattr(type(user_menu.settings), "admin_id_list", property(lambda self: [1]))
+
+    msg = _message("", 6060)
+    msg.document = None
+    loading = MagicMock(edit_text=AsyncMock())
+    msg.answer = AsyncMock(return_value=loading)
+    msg.bot.get_file = AsyncMock(return_value=MagicMock(file_path="p"))
+    msg.bot.download_file = AsyncMock(return_value=MagicMock(read=lambda: b"img"))
+    await user_menu.process_schedule_input(msg, student, db_session, file_ids=["f1"])
+
+    assert (await db_session.execute(sa_select(Schedule))).scalars().first() is None     # saqlanmadi
+    sub = (await db_session.execute(sa_select(ScheduleSubmission))).scalars().first()
+    assert sub.status == SubmissionStatus.NEEDS_CORRECTION
+    shown = loading.edit_text.call_args.args[0]
+    assert "to'liq emas" in shown and "Payshanba" in shown and "butun haftalik" in shown
+    msg.bot.send_message.assert_not_awaited()                                              # adminga ham ketmadi

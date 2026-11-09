@@ -332,6 +332,17 @@ async def _save_teacher_schedule(
         await loading.edit_text(t(lang, "read_failed"), parse_mode="HTML")
         return
 
+    from app.bot.text_utils import MIN_TEACHER_DAYS, MIN_TEACHER_LESSONS, is_full_week, week_coverage
+
+    if items and not is_full_week(items, MIN_TEACHER_DAYS, MIN_TEACHER_LESSONS):
+        days, count = week_coverage(items)
+        await loading.edit_text(
+            t(lang, "schedule_partial",
+              days=", ".join(DAY_LABELS[lang][d] for d in days) or "—", lessons=format_lesson_count(count, lang)),
+            parse_mode="HTML",
+        )
+        return
+
     lessons = await TeacherService.replace_lessons(session, teacher.id, items)
     if not lessons:
         await loading.edit_text(t(lang, "read_failed"), parse_mode="HTML")
