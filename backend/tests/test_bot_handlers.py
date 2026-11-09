@@ -340,7 +340,7 @@ def test_every_menu_button_has_a_handler_for_both_languages():
     known = set()
     for key in (
         "btn_today", "btn_tomorrow", "btn_week", "btn_reminder", "btn_send", "btn_profile", "btn_language", "btn_contact",
-        "btn_new_shots", "btn_stats", "btn_groups", "btn_users", "btn_announce", "btn_student_view",
+        "btn_new_shots", "btn_stats", "btn_groups", "btn_users", "btn_announce", "btn_student_view", "btn_teachers",
     ):
         known |= labels(key)
 

@@ -14,9 +14,10 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Filter, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.handlers.registration import start_registration
-from app.bot.i18n import DAY_LABELS, TEXTS, format_lesson_count, format_minutes, labels, lang_of, t
+from app.bot.i18n import DAY_LABELS, NL, TEXTS, format_lesson_count, format_minutes, labels, lang_of, t
 from app.bot.keyboards.inline import week_days_keyboard
 from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
 from app.bot.states import TeacherStates
@@ -67,6 +68,16 @@ class PendingTeacher(Filter):
             return False
         profile = await TeacherService.get_profile(session, current_user.id)
         return bool(profile and profile.status == TeacherStatus.PENDING)
+
+
+def telegram_account(user: User) -> str:
+    """Bosiladigan akkaunt havolasi + @username + ID: admin o'qituvchi kimligini aniq bilsin"""
+    full = " ".join(p for p in (user.first_name, user.last_name) if p) or str(user.telegram_id)
+    parts = [f'<a href="tg://user?id={user.telegram_id}">{esc(full)}</a>']
+    if user.username:
+        parts.append(f"@{esc(user.username)}")
+    parts.append(f"ID {user.telegram_id}")
+    return " · ".join(parts)
 
 
 def role_keyboard(lang: str) -> InlineKeyboardMarkup:
@@ -172,7 +183,6 @@ async def teacher_department(message: Message, state: FSMContext, current_user: 
 
 async def _notify_admins_about_teacher(message: Message, session: AsyncSession, user: User, profile: TeacherProfile) -> None:
     university = await session.get(University, profile.university_id) if profile.university_id else None
-    username = f"@{user.username}" if user.username else str(user.telegram_id)
     for admin_id in settings.admin_id_list:
         admin_lang = lang_of(await UserService.get_by_telegram_id(session, admin_id))
         kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -187,13 +197,70 @@ async def _notify_admins_about_teacher(message: Message, session: AsyncSession, 
                     name=esc(profile.full_name),
                     university=esc(university.name if university else "—"),
                     department=esc(profile.department or "—"),
-                    who=esc(username),
+                    who=telegram_account(user),
                 ),
                 parse_mode="HTML",
                 reply_markup=kb,
             )
         except Exception as e:
             logger.error(f"Failed to send teacher request to admin {admin_id}: {e}")
+
+
+def _review_kb(lang: str, profile_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=t(lang, "btn_teacher_ok"), callback_data=f"tch_ok_{profile_id}"),
+        InlineKeyboardButton(text=t(lang, "btn_teacher_no"), callback_data=f"tch_no_{profile_id}"),
+    ]])
+
+
+async def _teacher_card(session: AsyncSession, profile: TeacherProfile, user: User, lang: str) -> str:
+    university = await session.get(University, profile.university_id) if profile.university_id else None
+    lessons = await TeacherService.get_lessons(session, profile.id)
+    icon = {TeacherStatus.APPROVED: "✅", TeacherStatus.PENDING: "⏳"}.get(profile.status, "❌")
+    return t(
+        lang, "teacher_card",
+        icon=icon,
+        name=esc(profile.full_name),
+        university=esc(university.name if university else "—"),
+        department=esc(profile.department or "—"),
+        who=telegram_account(user),
+        lessons=format_lesson_count(len(lessons), lang),
+        groups=len({l.group_name for l in lessons if l.group_name}),
+    )
+
+
+# --- Admin: O'qituvchilar bo'limi ---
+@router.message(F.text.in_(labels("btn_teachers")))
+async def admin_teachers(message: Message, current_user: User, session: AsyncSession):
+    lang = lang_of(current_user)
+    if current_user.role != UserRole.ADMIN:
+        await message.answer(t(lang, "admin_only"))
+        return
+    rows = (await session.execute(
+        select(TeacherProfile, User).join(User, User.id == TeacherProfile.user_id).order_by(TeacherProfile.id.desc())
+    )).all()
+    counts = {status: sum(1 for p, _ in rows if p.status == status) for status in TeacherStatus}
+    await message.answer(
+        t(lang, "teachers_admin_title", approved=counts[TeacherStatus.APPROVED],
+          pending=counts[TeacherStatus.PENDING], rejected=counts[TeacherStatus.REJECTED]),
+        parse_mode="HTML",
+    )
+
+    approved = [(p, u) for p, u in rows if p.status == TeacherStatus.APPROVED]
+    if approved:
+        cards = [await _teacher_card(session, p, u, lang) for p, u in approved[:30]]
+        await message.answer(
+            t(lang, "teachers_approved_title") + NL + NL + (NL + NL).join(cards),
+            parse_mode="HTML", disable_web_page_preview=True,
+        )
+
+    pending = [(p, u) for p, u in rows if p.status == TeacherStatus.PENDING]
+    if pending:
+        await message.answer(t(lang, "teachers_pending_title"), parse_mode="HTML")
+        for p, u in pending[:20]:
+            await message.answer(
+                await _teacher_card(session, p, u, lang), parse_mode="HTML", reply_markup=_review_kb(lang, p.id)
+            )
 
 
 # --- Admin: tasdiqlash / rad etish ---

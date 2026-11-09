@@ -184,9 +184,20 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "ru": "⏳ Заявка ещё на рассмотрении. Сообщим после подтверждения.",
     },
     "teacher_request_admin": {
-        "uz": "👨‍🏫 <b>Yangi o'qituvchi so'rovi</b>\n\n👤 {name}\n🏛 {university}\n🎓 {department}\n🆔 {who}",
-        "ru": "👨‍🏫 <b>Новая заявка преподавателя</b>\n\n👤 {name}\n🏛 {university}\n🎓 {department}\n🆔 {who}",
+        "uz": "👨‍🏫 <b>Yangi o'qituvchi so'rovi</b>\n\n👤 {name}\n🏛 {university}\n🎓 {department}\n📱 Telegram: {who}",
+        "ru": "👨‍🏫 <b>Новая заявка преподавателя</b>\n\n👤 {name}\n🏛 {university}\n🎓 {department}\n📱 Telegram: {who}",
     },
+    "btn_teachers": {"uz": "👨‍🏫 O'qituvchilar", "ru": "👨‍🏫 Преподаватели"},
+    "teachers_admin_title": {
+        "uz": "👨‍🏫 <b>O'qituvchilar</b>"+NL+NL+"✅ Tasdiqlangan: <b>{approved}</b>"+NL+"⏳ Tasdiq kutmoqda: <b>{pending}</b>"+NL+"❌ Rad etilgan: <b>{rejected}</b>",
+        "ru": "👨‍🏫 <b>Преподаватели</b>"+NL+NL+"✅ Подтверждены: <b>{approved}</b>"+NL+"⏳ Ждут подтверждения: <b>{pending}</b>"+NL+"❌ Отклонены: <b>{rejected}</b>",
+    },
+    "teacher_card": {
+        "uz": "{icon} <b>{name}</b>"+NL+"🏛 {university} · 🎓 {department}"+NL+"📱 {who}"+NL+"📚 {lessons} · 👥 {groups} ta guruh",
+        "ru": "{icon} <b>{name}</b>"+NL+"🏛 {university} · 🎓 {department}"+NL+"📱 {who}"+NL+"📚 {lessons} · 👥 групп: {groups}",
+    },
+    "teachers_pending_title": {"uz": "⏳ <b>Tasdiq kutayotganlar:</b>", "ru": "⏳ <b>Ждут подтверждения:</b>"},
+    "teachers_approved_title": {"uz": "✅ <b>Tasdiqlangan o'qituvchilar:</b>", "ru": "✅ <b>Подтверждённые преподаватели:</b>"},
     "btn_teacher_ok": {"uz": "✅ Tasdiqlash", "ru": "✅ Подтвердить"},
     "btn_teacher_no": {"uz": "❌ Rad etish", "ru": "❌ Отклонить"},
     "admin_teacher_approved": {"uz": "✅ O'qituvchi tasdiqlandi: {name}", "ru": "✅ Преподаватель подтверждён: {name}"},

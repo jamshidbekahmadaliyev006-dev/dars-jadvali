@@ -58,6 +58,7 @@ async def test_teacher_registration_goes_to_admin_and_approval_unlocks(db_sessio
     # Adminga tasdiqlash tugmalari bilan so'rov ketdi
     admin_call = msg.bot.send_message.call_args
     assert admin_call.args[0] == 900
+    assert 'href="tg://user?id=700"' in admin_call.args[1]  # admin kimligini bilsin
     buttons = [b.callback_data for row in admin_call.kwargs["reply_markup"].inline_keyboard for b in row]
     assert buttons == [f"tch_ok_{profile.id}", f"tch_no_{profile.id}"]
 
@@ -221,3 +222,36 @@ async def test_admin_statistics_count_unique_subjects_and_user_roles(db_session:
     stats = await collect_statistics(db_session)
     assert stats == {"universities": 1, "faculties": 1, "teachers": 1, "groups": 2, "subjects": 3}
     assert await collect_user_counts(db_session) == {"total": 3, "teachers": 1, "students": 1}
+
+
+@pytest.mark.asyncio
+async def test_admin_teachers_section_shows_accounts(db_session: AsyncSession):
+    admin = await _user(db_session, 950, role=UserRole.ADMIN)
+    t1 = User(telegram_id=951, first_name="Anvar", last_name="Karimov", username="anvar_k", role=UserRole.USER, language_code="uz")
+    t2 = User(telegram_id=952, first_name="Dilshod", role=UserRole.USER, language_code="uz")
+    db_session.add_all([t1, t2])
+    await db_session.commit()
+    p1 = await TeacherService.submit_profile(db_session, t1.id, "TATU", "Karimov Anvar Rustamovich", "Kiberxavfsizlik")
+    await TeacherService.set_status(db_session, p1.id, TeacherStatus.APPROVED)
+    p2 = await TeacherService.submit_profile(db_session, t2.id, "TATU", "Aliyev Dilshod", "Matematika")
+
+    msg = _message("👨‍🏫 O'qituvchilar", 950)
+    await teacher_handlers.admin_teachers(msg, admin, db_session)
+    texts = [c.args[0] for c in msg.answer.call_args_list]
+    assert "Tasdiqlangan: <b>1</b>" in texts[0] and "Tasdiq kutmoqda: <b>1</b>" in texts[0]
+    approved_text = texts[1]
+    assert "Karimov Anvar Rustamovich" in approved_text
+    assert 'href="tg://user?id=951"' in approved_text and "@anvar_k" in approved_text
+    # Kutayotgan o'qituvchi alohida, tasdiqlash tugmalari bilan
+    last = msg.answer.call_args_list[-1]
+    assert "Aliyev Dilshod" in last.args[0] and "ID 952" in last.args[0]
+    buttons = [b.callback_data for row in last.kwargs["reply_markup"].inline_keyboard for b in row]
+    assert buttons == [f"tch_ok_{p2.id}", f"tch_no_{p2.id}"]
+
+
+@pytest.mark.asyncio
+async def test_non_admin_cannot_open_teachers_section(db_session: AsyncSession):
+    student = await _user(db_session, 960)
+    msg = _message("👨‍🏫 O'qituvchilar", 960)
+    await teacher_handlers.admin_teachers(msg, student, db_session)
+    assert msg.answer.call_count == 1 and "administrator" in msg.answer.call_args.args[0]
