@@ -232,42 +232,106 @@ async def _teacher_card(session: AsyncSession, profile: TeacherProfile, user: Us
 
 
 # --- Admin: O'qituvchilar bo'limi ---
+def _short_name(full_name: str, limit: int = 22) -> str:
+    return full_name if len(full_name) <= limit else full_name[: limit - 1] + "…"
+
+
+async def _teachers_view(session: AsyncSession, lang: str):
+    """O'qituvchilar ro'yxati: (matn, tugmalar). Tugmalar ro'yxat xabarini o'z joyida yangilaydi (tl: prefiksi)."""
+    rows = (await session.execute(
+        select(TeacherProfile, User).join(User, User.id == TeacherProfile.user_id).order_by(TeacherProfile.full_name)
+    )).all()
+    counts = {status: sum(1 for p, _ in rows if p.status == status) for status in TeacherStatus}
+    lines = [t(lang, "teachers_admin_title", approved=counts[TeacherStatus.APPROVED],
+               pending=counts[TeacherStatus.PENDING], rejected=counts[TeacherStatus.REJECTED])]
+    keyboard = []
+
+    pending = [(p, u) for p, u in rows if p.status == TeacherStatus.PENDING]
+    approved = [(p, u) for p, u in rows if p.status == TeacherStatus.APPROVED]
+    if pending:
+        lines.append(NL + t(lang, "teachers_pending_title"))
+        for n, (p, u) in enumerate(pending, 1):
+            lines.append(f"{n}. ⏳ <b>{esc(p.full_name)}</b> — {esc(p.department or '—')} — {telegram_account(u)}")
+            keyboard.append([
+                InlineKeyboardButton(text=f"✅ {_short_name(p.full_name, 14)}", callback_data=f"tl:ok:{p.id}"),
+                InlineKeyboardButton(text="❌", callback_data=f"tl:no:{p.id}"),
+                InlineKeyboardButton(text="🚫", callback_data=f"tl:blk:{u.id}"),
+            ])
+    if approved:
+        lines.append(NL + t(lang, "teachers_approved_title"))
+        for n, (p, u) in enumerate(approved, 1):
+            lines.append(f"{n}. ✅ <b>{esc(p.full_name)}</b> — {esc(p.department or '—')} — {telegram_account(u)}")
+            keyboard.append([InlineKeyboardButton(text=f"🚫 {_short_name(p.full_name)}", callback_data=f"tl:blk:{u.id}")])
+    return NL.join(lines)[:4000], (InlineKeyboardMarkup(inline_keyboard=keyboard) if keyboard else None)
+
+
+def _short_name(full_name: str, limit: int = 22) -> str:
+    return full_name if len(full_name) <= limit else full_name[: limit - 1] + "…"
+
+
 @router.message(F.text.in_(labels("btn_teachers")))
 async def admin_teachers(message: Message, current_user: User, session: AsyncSession):
+    """Hamma o'qituvchilar BITTA xabarda: sanoq, qisqa ro'yxat (ism, fakultet, bosiladigan nik) va tugmalar"""
     lang = lang_of(current_user)
     if current_user.role != UserRole.ADMIN:
         await message.answer(t(lang, "admin_only"))
         return
-    rows = (await session.execute(
-        select(TeacherProfile, User).join(User, User.id == TeacherProfile.user_id).order_by(TeacherProfile.id.desc())
-    )).all()
-    counts = {status: sum(1 for p, _ in rows if p.status == status) for status in TeacherStatus}
-    await message.answer(
-        t(lang, "teachers_admin_title", approved=counts[TeacherStatus.APPROVED],
-          pending=counts[TeacherStatus.PENDING], rejected=counts[TeacherStatus.REJECTED]),
-        parse_mode="HTML",
-    )
+    text, markup = await _teachers_view(session, lang)
+    await message.answer(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=markup)
 
-    approved = [(p, u) for p, u in rows if p.status == TeacherStatus.APPROVED]
-    if approved:
-        await message.answer(t(lang, "teachers_approved_title"), parse_mode="HTML")
-        for p, u in approved[:30]:
-            await message.answer(
-                await _teacher_card(session, p, u, lang), parse_mode="HTML",
-                reply_markup=_block_kb(lang, u.id), disable_web_page_preview=True,
-            )
 
-    pending = [(p, u) for p, u in rows if p.status == TeacherStatus.PENDING]
-    if pending:
-        await message.answer(t(lang, "teachers_pending_title"), parse_mode="HTML")
-        for p, u in pending[:20]:
-            await message.answer(
-                await _teacher_card(session, p, u, lang), parse_mode="HTML", reply_markup=_review_kb(lang, p.id, u.id),
-                disable_web_page_preview=True,
-            )
+@router.callback_query(F.data.startswith("tl:"))
+async def admin_teachers_list_action(query: CallbackQuery, current_user: User, session: AsyncSession):
+    lang = lang_of(current_user)
+    if current_user.role != UserRole.ADMIN:
+        await query.answer(t(lang, "admin_only"), show_alert=True)
+        return
+    _, action, raw_id = query.data.split(":")
+    target_id = int(raw_id)
+    if action == "blk":
+        from app.services.user_service import UserService
+
+        target = await session.get(User, target_id)
+        if target is None or target.role == UserRole.ADMIN or target.telegram_id in settings.admin_id_list:
+            await query.answer(t(lang, "block_admin_refused"), show_alert=True)
+            return
+        await UserService.set_blocked(session, target, True)
+    else:
+        await _decide_teacher(query.bot, session, target_id, approve=(action == "ok"))
+    await query.answer()
+    text, markup = await _teachers_view(session, lang)
+    try:
+        await query.message.edit_text(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=markup)
+    except TelegramBadRequest:
+        pass
 
 
 # --- Admin: tasdiqlash / rad etish ---
+async def _decide_teacher(bot, session: AsyncSession, profile_id: int, approve: bool):
+    """Holatni o'zgartiradi va o'qituvchiga xabar yuboradi"""
+    profile = await TeacherService.set_status(
+        session, profile_id, TeacherStatus.APPROVED if approve else TeacherStatus.REJECTED
+    )
+    if not profile:
+        return None
+    teacher_user = await session.get(User, profile.user_id)
+    if not teacher_user:
+        return profile
+    t_lang = lang_of(teacher_user)
+    try:
+        if approve:
+            await bot.send_message(
+                teacher_user.telegram_id, t(t_lang, "teacher_approved"), parse_mode="HTML",
+                reply_markup=_teacher_keyboard(teacher_user, t_lang),
+            )
+            await bot.send_message(teacher_user.telegram_id, t(t_lang, "teacher_send_schedule"), parse_mode="HTML")
+        else:
+            await bot.send_message(teacher_user.telegram_id, t(t_lang, "teacher_rejected"))
+    except Exception as e:
+        logger.error(f"Failed to notify teacher {teacher_user.telegram_id}: {e}")
+    return profile
+
+
 @router.callback_query(F.data.startswith("tch_ok_") | F.data.startswith("tch_no_"))
 async def admin_review_teacher(query: CallbackQuery, current_user: User, session: AsyncSession, state: FSMContext):
     lang = lang_of(current_user)
@@ -275,14 +339,10 @@ async def admin_review_teacher(query: CallbackQuery, current_user: User, session
         await query.answer(t(lang, "admin_only"), show_alert=True)
         return
     approve = query.data.startswith("tch_ok_")
-    profile_id = int(query.data.rsplit("_", 1)[1])
-    profile = await TeacherService.set_status(
-        session, profile_id, TeacherStatus.APPROVED if approve else TeacherStatus.REJECTED
-    )
+    profile = await _decide_teacher(query.bot, session, int(query.data.rsplit("_", 1)[1]), approve)
     await query.answer()
     if not profile:
         return
-
     key = "admin_teacher_approved" if approve else "admin_teacher_rejected"
     try:
         await query.message.edit_text(
@@ -290,24 +350,6 @@ async def admin_review_teacher(query: CallbackQuery, current_user: User, session
         )
     except TelegramBadRequest:
         pass
-
-    teacher_user = await session.get(User, profile.user_id)
-    if not teacher_user:
-        return
-    t_lang = lang_of(teacher_user)
-    try:
-        if approve:
-            await query.bot.send_message(
-                teacher_user.telegram_id,
-                t(t_lang, "teacher_approved"),
-                parse_mode="HTML",
-                reply_markup=_teacher_keyboard(teacher_user, t_lang),
-            )
-            await query.bot.send_message(teacher_user.telegram_id, t(t_lang, "teacher_send_schedule"), parse_mode="HTML")
-        else:
-            await query.bot.send_message(teacher_user.telegram_id, t(t_lang, "teacher_rejected"))
-    except Exception as e:
-        logger.error(f"Failed to notify teacher {teacher_user.telegram_id}: {e}")
 
 
 # --- Jadval yuklash (rasm / fayl / matn) ---

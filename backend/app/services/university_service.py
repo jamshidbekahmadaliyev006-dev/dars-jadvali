@@ -43,6 +43,15 @@ def group_key(value: str) -> str:
     return "-".join(parts)
 
 
+# Bir fakultetning boshqa tildagi / qisqartmadagi yozilishlari (name_key ko'rinishida -> asosiy nom kaliti)
+FACULTY_ALIASES = {
+    "kif": "kompyuterinjiniringi", "kompyuterengineering": "kompyuterinjiniringi",
+    "computerengineering": "kompyuterinjiniringi", "компьютерныйинжиниринг": "kompyuterinjiniringi",
+    "rma": "radiovamobilaloqa", "cybersecurity": "kiberxavfsizlik", "кибербезопасность": "kiberxavfsizlik",
+    "kiberbezopasnost": "kiberxavfsizlik", "kx": "kiberxavfsizlik",
+}
+
+
 def acronym(value: str) -> str:
     """'Toshkent Axborot Texnologiyalari Universiteti' -> 'tatu'"""
     words = re.findall(r"\w+", (value or "").lower())
@@ -276,10 +285,24 @@ class UniversityService:
         for f in faculties:
             if key in (name_key(f.name), name_key(f.short_name or "")):
                 return f
+        alias = FACULTY_ALIASES.get(key)
+        if alias:
+            hit = [f for f in faculties if name_key(f.name) == alias]
+            if len(hit) == 1:
+                return hit[0]
         close = [f for f in faculties if SequenceMatcher(None, key, name_key(f.name)).ratio() >= 0.85]
         if len(close) == 1:
             return close[0]
-        by_acronym = [f for f in faculties if acronym(f.name) and acronym(f.name) == key]
+        # "Kiber" -> "Kiberxavfsizlik": yozilgan nom mavjud nomning boshlanishi (kamida 4 harf, yagona moslik)
+        if len(key) >= 4:
+            starts = [f for f in faculties if name_key(f.name).startswith(key)]
+            if len(starts) == 1:
+                return starts[0]
+        # Qisqartma: initsiallar ("RVMA"), yoki "fakulteti" so'zi bilan ("KIF")
+        by_acronym = [
+            f for f in faculties
+            if key in {acronym(f.name), acronym(f.name + " fakulteti"), acronym(re.sub(r"\bva\b", " ", f.name))}
+        ]
         return by_acronym[0] if len(by_acronym) == 1 else None
 
     @staticmethod

@@ -108,7 +108,7 @@ async def process_group(message: Message, state: FSMContext, current_user: User,
 
     # Jadval yo'q - rasm yoki matn ko'rinishida so'raladi
     await state.set_state(RegistrationStates.waiting_schedule)
-    await message.answer(f"{profile_text}{t(lang, 'send_photo_now')}", parse_mode="HTML", reply_markup=kb)
+    await message.answer(f"{t(lang, 'registered')}\n\n{t(lang, 'send_photo_now')}", parse_mode="HTML", reply_markup=kb)
 
 
 def _is_schedule_text(message: Message) -> bool:

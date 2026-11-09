@@ -10,8 +10,10 @@ from app.services.university_service import UniversityService, pretty_group_name
 
 
 def _clean_room(item: Dict[str, Any]) -> Optional[str]:
-    room = (item.get("room") or "").strip().strip("()").lstrip("-–— ").strip()
-    building = (item.get("building") or "").strip().strip("()").rstrip("-–— ").strip()
+    from app.services.schedule_service import clean_room_text
+
+    room = clean_room_text(item.get("room")).lstrip("-–— ").strip()
+    building = clean_room_text(item.get("building")).rstrip("-–— ").strip()
     if room and building and not room.lower().startswith(building.lower()):
         room = f"{building}-{room}"
     return room or None

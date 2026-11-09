@@ -81,6 +81,32 @@ def normalize_subject_name(raw: str) -> Tuple[str, Optional[str]]:
     return (text or (raw or "").strip()), code
 
 
+def canonical_subject_names(lessons) -> dict:
+    """
+    Bir fan kodi (masalan DLT001) jadvalda turlicha yozilishi mumkin: qator oxirida so'z kesilib
+    "texnologiyalar i" bo'lib qolishi, "/" belgisi va h.k. Kod bo'yicha eng ko'p uchragan toza nom tanlanadi.
+    """
+    from collections import Counter
+
+    names_by_code = {}
+    for item in lessons:
+        name, code = normalize_subject_name(item.get("subject") or "")
+        if code and name:
+            names_by_code.setdefault(code, Counter())[name] += 1
+    result = {}
+    for code, counter in names_by_code.items():
+        # eng ko'p uchragan; teng bo'lsa - uzunroq (kesilgan emas)
+        result[code] = sorted(counter.items(), key=lambda kv: (-kv[1], -len(kv[0])))[0][0]
+    return result
+
+
+def clean_room_text(value: Optional[str]) -> str:
+    """Xona yozuvidagi tasodifiy belgilar: 'D/-213' -> 'D-213', '(/B-408)' -> 'B-408'"""
+    text = (value or "").strip().strip("()").replace("/", "").replace("\\", "")
+    text = re.sub(r"-{2,}", "-", text).strip(" -–—")
+    return text
+
+
 def current_local_date() -> date:
     return datetime.now(pytz.timezone(settings.TIMEZONE)).date()
 
@@ -318,11 +344,31 @@ class ScheduleService:
         name: str,
         code: Optional[str] = None,
     ) -> Subject:
+        # 1) Fan kodi bo'yicha: bir xil kod = bir xil fan (nomi turlicha yozilgan bo'lsa ham)
+        if code:
+            obj = (await session.execute(
+                select(Subject).where(Subject.university_id == university_id, Subject.code == code)
+            )).scalars().first()
+            if obj:
+                return obj
+        # 2) Aniq nom
         stmt = select(Subject).where(Subject.university_id == university_id, func.lower(Subject.name) == name.lower())
-        result = await session.execute(stmt)
-        obj = result.scalar_one_or_none()
+        obj = (await session.execute(stmt)).scalars().first()
         if obj:
+            if code and not obj.code:
+                obj.code = code
             return obj
+        # 3) Deyarli bir xil nom (imlo/kesilgan so'z): 92%+ o'xshash
+        from difflib import SequenceMatcher
+        from app.services.university_service import name_key
+
+        key = name_key(name)
+        existing = (await session.execute(select(Subject).where(Subject.university_id == university_id))).scalars().all()
+        close = [x for x in existing if SequenceMatcher(None, key, name_key(x.name)).ratio() >= 0.92]
+        if len(close) == 1:
+            if code and not close[0].code:
+                close[0].code = code
+            return close[0]
         obj = Subject(university_id=university_id, name=name, code=code)
         session.add(obj)
         await session.flush()
@@ -385,6 +431,7 @@ class ScheduleService:
             raise ValueError(f"AI natijasini o'qishda xatolik: {e}")
 
         created: List[Schedule] = []
+        canonical = canonical_subject_names(lessons)
         for item in lessons:
             day_enum = resolve_day_of_week(item.get("day"))
             subject_name = (item.get("subject") or "").strip()
@@ -396,6 +443,7 @@ class ScheduleService:
                 continue
 
             clean_name, subject_code = normalize_subject_name(subject_name)
+            clean_name = canonical.get(subject_code, clean_name) if subject_code else clean_name
             subject = await ScheduleService._get_or_create_subject(
                 session, submission.university_id, clean_name, subject_code
             )
@@ -406,8 +454,8 @@ class ScheduleService:
                 teacher = await ScheduleService._get_or_create_teacher(session, submission.university_id, teacher_name)
 
             room = None
-            room_number = (item.get("room") or "").strip().strip("()").lstrip("-–— ").strip()
-            building_label = (item.get("building") or "").strip().strip("()").rstrip("-–— ").strip()
+            room_number = clean_room_text(item.get("room")).lstrip("-–— ").strip()
+            building_label = clean_room_text(item.get("building")).rstrip("-–— ").strip()
             if room_number and building_label and not room_number.lower().startswith(building_label.lower()):
                 # Talabaga ko'rinadigan xona yozuvi binoni ham o'z ichiga olsin: "A-327"
                 room_number = f"{building_label}-{room_number}"

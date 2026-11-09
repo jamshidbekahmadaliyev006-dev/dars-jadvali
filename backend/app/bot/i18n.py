@@ -306,12 +306,8 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "ru": "Расписание вашей группы уже есть, фото отправлять не нужно. Напоминания включены.",
     },
     "send_photo_now": {
-        "uz": "Guruhingiz jadvali hali bazada yo'q.\n\n📸 Dars jadvali <b>rasmini</b> yuboring\n"
-              "yoki ✍️ jadvalni <b>yozib</b> yuboring, masalan:\n\n"
-              "<code>Dushanba 08:00-09:30 Matematika A-327\nDushanba 09:30-11:00 Fizika A-210</code>",
-        "ru": "Расписания вашей группы пока нет в базе.\n\n📸 Отправьте <b>фото</b> расписания\n"
-              "или ✍️ <b>напишите</b> его текстом, например:\n\n"
-              "<code>Понедельник 08:00-09:30 Математика A-327\nПонедельник 09:30-11:00 Физика A-210</code>",
+        "uz": "📸 Rasm yoki jadvalni yozib yuboring.",
+        "ru": "📸 Отправьте фото или напишите расписание.",
     },
     # Jadval
     "week_today": {"uz": "📅 Bugun: {date}", "ru": "📅 Сегодня: {date}"},

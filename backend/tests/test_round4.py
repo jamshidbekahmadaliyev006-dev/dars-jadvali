@@ -217,3 +217,86 @@ async def test_single_day_photo_is_not_saved_as_the_group_schedule(db_session: A
     shown = loading.edit_text.call_args.args[0]
     assert "to'liq emas" in shown and "Payshanba" in shown and "butun haftalik" in shown
     msg.bot.send_message.assert_not_awaited()                                              # adminga ham ketmadi
+
+
+@pytest.mark.asyncio
+async def test_same_subject_code_is_one_subject_even_if_name_is_cut(db_session: AsyncSession):
+    from app.models.schedule import ScheduleSubmission
+    from app.models.enums import SubmissionStatus
+    from app.models.university import Faculty, Group, Subject, University
+    from app.services.schedule_service import ScheduleService
+    from sqlalchemy import select as sa_select
+    import json
+
+    univ = University(name="TATU")
+    db_session.add(univ)
+    await db_session.commit()
+    fac = Faculty(name="RTT", university_id=univ.id)
+    db_session.add(fac)
+    await db_session.commit()
+    grp = Group(name="062-23", university_id=univ.id, faculty_id=fac.id)
+    user = User(telegram_id=7070, first_name="T", role=UserRole.USER)
+    db_session.add_all([grp, user])
+    await db_session.commit()
+    lessons = [
+        {"day": "Dushanba", "subject": "Masofaviy ta'lim texnologiyalari-DLT001", "start_time": "13:00", "end_time": "14:20", "building": "E", "room": "214"},
+        {"day": "Payshanba", "subject": "Masofaviy ta'lim texnologiyalar i-/DLT001-1", "start_time": "13:00", "end_time": "14:20", "building": "B", "room": "/408", "week_parity": "EVEN"},
+        {"day": "Juma", "subject": "Masofaviy ta'lim texnologiyalari-DLT001-1", "start_time": "09:30", "end_time": "10:50", "building": "B", "room": "408"},
+        {"day": "Seshanba", "subject": "Elektron pedagogika (8 kr)-ELP001", "start_time": "09:30", "end_time": "10:50", "building": "B", "room": "411"},
+    ]
+    sub = ScheduleSubmission(user_id=user.id, university_id=univ.id, group_id=grp.id, image_file_id="-",
+                             status=SubmissionStatus.ADMIN_REVIEW, ai_extracted_json=json.dumps(lessons))
+    db_session.add(sub)
+    await db_session.commit()
+    created = await ScheduleService.resolve_and_create_schedules_from_extraction(db_session, sub)
+    assert len(created) == 4
+    names = sorted((await db_session.execute(sa_select(Subject.name))).scalars().all())
+    assert names == ["Elektron pedagogika", "Masofaviy ta'lim texnologiyalari"]   # bitta fan ikki marta emas
+
+
+@pytest.mark.asyncio
+async def test_faculty_variants_match_the_same_faculty(db_session: AsyncSession):
+    from app.models.university import Faculty, University
+    from app.services.university_service import UniversityService
+
+    univ = University(name="TATU")
+    db_session.add(univ)
+    await db_session.commit()
+    kx = Faculty(name="Kiberxavfsizlik", university_id=univ.id)
+    ki = Faculty(name="Kompyuter injiniringi", university_id=univ.id)
+    rma = Faculty(name="Radio va mobil aloqa", university_id=univ.id)
+    db_session.add_all([kx, ki, rma])
+    await db_session.commit()
+    for typed, expected in [("Kiber", kx), ("Кибербезопасность", kx), ("KIF", ki), ("kompyuter engineering", ki),
+                            ("RMA", rma), ("RVMA", rma), ("kiberxafvsizlik", kx)]:
+        found = await UniversityService.match_faculty(db_session, univ.id, typed)
+        assert found is not None and found.id == expected.id, typed
+    assert await UniversityService.match_faculty(db_session, univ.id, "Iqtisodiyot") is None
+
+
+def test_admin_menu_has_no_schedules_button():
+    from app.bot.keyboards.reply import get_admin_main_keyboard
+
+    texts = [b.text for row in get_admin_main_keyboard("uz").keyboard for b in row]
+    assert not any("Jadvallar" in x or "screenshot" in x.lower() for x in texts)
+    assert "👨‍🏫 O'qituvchilar" in texts and "👥 Guruhlar" in texts
+
+
+@pytest.mark.asyncio
+async def test_changing_language_only_confirms(db_session: AsyncSession):
+    from app.bot.handlers import start
+
+    user = User(telegram_id=8080, first_name="Til", role=UserRole.USER, language_code="uz", language_chosen=True, group_id=1)
+    db_session.add(user)
+    await db_session.commit()
+    q = MagicMock(spec=CallbackQuery)
+    q.data = "lang_en"
+    q.answer = AsyncMock()
+    q.message = MagicMock(delete=AsyncMock(), answer=AsyncMock(), edit_text=AsyncMock())
+    await start.handle_language_choice(q, AsyncMock(), user, db_session)
+
+    assert user.language_code == "en"
+    q.message.answer.assert_awaited_once()                       # faqat bitta xabar: "qabul qilindi" + menyu
+    shown = q.message.answer.call_args
+    assert "saved" in shown.args[0].lower() or "language" in shown.args[0].lower()
+    assert [b.text for row in shown.kwargs["reply_markup"].keyboard for b in row][0] == "📅 Timetable"

@@ -239,21 +239,28 @@ async def test_admin_teachers_section_shows_accounts(db_session: AsyncSession):
 
     msg = _message("👨‍🏫 O'qituvchilar", 950)
     await teacher_handlers.admin_teachers(msg, admin, db_session)
-    texts = [c.args[0] for c in msg.answer.call_args_list]
-    assert "Tasdiqlangan: <b>1</b>" in texts[0] and "Tasdiq kutmoqda: <b>1</b>" in texts[0]
-    approved_text = texts[2]  # [0] hisob, [1] sarlavha, [2] birinchi o'qituvchi kartasi
-    assert "Karimov Anvar Rustamovich" in approved_text
-    assert 'href="https://t.me/anvar_k"' in approved_text and "@anvar_k" in approved_text
-    assert "Kiberxavfsizlik" in approved_text
-    # Ortiqcha ma'lumot yo'q: universitet, ID, darslar soni ko'rsatilmaydi
-    assert "TATU" not in approved_text and "ID " not in approved_text and "dars" not in approved_text
-    # Kutayotgan o'qituvchi alohida, tasdiqlash tugmalari bilan
-    last = msg.answer.call_args_list[-1]
-    assert "Aliyev Dilshod" in last.args[0] and 'href="tg://user?id=952"' in last.args[0]
-    buttons = [b.callback_data for row in last.kwargs["reply_markup"].inline_keyboard for b in row]
-    assert buttons == [f"tch_ok_{p2.id}", f"tch_no_{p2.id}", f"blk_{t2.id}"]
-    approved_call = msg.answer.call_args_list[2]
-    assert [b.callback_data for row in approved_call.kwargs["reply_markup"].inline_keyboard for b in row] == [f"blk_{t1.id}"]
+
+    assert msg.answer.call_count == 1                              # hammasi BITTA xabarda
+    call = msg.answer.call_args
+    text = call.args[0]
+    assert "Tasdiqlangan: <b>1</b>" in text and "Tasdiq kutmoqda: <b>1</b>" in text
+    assert "Karimov Anvar Rustamovich" in text and "Kiberxavfsizlik" in text
+    assert 'href="https://t.me/anvar_k"' in text and "@anvar_k" in text
+    assert "Aliyev Dilshod" in text and 'href="tg://user?id=952"' in text  # nik yo'q - ism havolasi
+    assert "TATU" not in text and "ID " not in text                      # ortiqcha ma'lumot yo'q
+    buttons = [b.callback_data for row in call.kwargs["reply_markup"].inline_keyboard for b in row]
+    assert f"tl:ok:{p2.id}" in buttons and f"tl:no:{p2.id}" in buttons and f"tl:blk:{t1.id}" in buttons
+
+    # Tugma bosilsa ro'yxat shu xabarning o'zida yangilanadi
+    q = MagicMock(spec=CallbackQuery)
+    q.data = f"tl:ok:{p2.id}"
+    q.answer = AsyncMock()
+    q.bot = MagicMock(send_message=AsyncMock())
+    q.message = MagicMock(edit_text=AsyncMock())
+    await teacher_handlers.admin_teachers_list_action(q, admin, db_session)
+    new_text = q.message.edit_text.call_args.args[0]
+    assert "Tasdiqlangan: <b>2</b>" in new_text and "kutmoqda: <b>0</b>" in new_text
+    q.bot.send_message.assert_awaited()                                    # o'qituvchiga xabar ketdi
 
 
 @pytest.mark.asyncio

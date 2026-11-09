@@ -68,13 +68,17 @@ async def collect_statistics(session: AsyncSession) -> dict:
 
     # Fanlar: guruhlardagi darslar emas, har bir fan bitta. "Matematika (4 kr)-MAT001", "matematika"
     # va o'qituvchi jadvalidagi "Matematika" - hammasi bitta fan sifatida sanaladi.
-    names = (await session.execute(
-        select(Subject.name).join(Schedule, Schedule.subject_id == Subject.id).where(Schedule.is_active == True)
-    )).scalars().all()
-    names += (await session.execute(
+    pairs = (await session.execute(
+        select(Subject.name, Subject.code).join(Schedule, Schedule.subject_id == Subject.id).where(Schedule.is_active == True)
+    )).all()
+    keys = {("c:" + code) if code else ("n:" + name_key(normalize_subject_name(name)[0])) for name, code in pairs if name}
+    for subject in (await session.execute(
         select(TeacherLesson.subject).where(TeacherLesson.is_active == True)
-    )).scalars().all()
-    subjects = len({name_key(normalize_subject_name(n)[0]) for n in names if n and name_key(n)})
+    )).scalars().all():
+        clean, code = normalize_subject_name(subject or "")
+        if clean:
+            keys.add(("c:" + code) if code else ("n:" + name_key(clean)))
+    subjects = len(keys)
 
     return {"universities": universities, "faculties": faculties, "teachers": teachers, "groups": groups, "subjects": subjects}
 
@@ -352,8 +356,9 @@ async def build_groups_report(session: AsyncSession, lang: str) -> list:
             by_faculty.setdefault(g.faculty_id, []).append(g)
         for fac_id, fac_groups in sorted(by_faculty.items(), key=lambda kv: (faculties[kv[0]].name if kv[0] in faculties else "")):
             fname = faculties[fac_id].name if fac_id in faculties else "—"
-            lines.append(NL + f"🎓 <b>{esc(fname)}</b>")
-            for g in fac_groups:
+            done = sum(1 for g in fac_groups if lessons.get(g.id))
+            lines.append(NL + f"🎓 <b>{esc(fname)}</b> · {done}/{len(fac_groups)} 📅")
+            for g in sorted(fac_groups, key=lambda g: (not lessons.get(g.id), g.name)):  # jadvallilar yuqorida
                 has = bool(lessons.get(g.id))
                 row = f"{'✅' if has else '⚪️'} {esc(g.name)} — {students.get(g.id, 0)} 👤"
                 if has:

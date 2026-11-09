@@ -103,10 +103,21 @@ async def handle_language_prompt(message: Message, state: FSMContext, current_us
 @router.callback_query(F.data.in_({"lang_uz", "lang_ru", "lang_en"}))
 async def handle_language_choice(query: CallbackQuery, state: FSMContext, current_user: User, session: AsyncSession):
     lang = query.data.split("_")[-1]
+    was_chosen = bool(current_user.language_chosen)
     current_user.language_code = lang
     current_user.language_chosen = True
     await session.commit()
+    await query.answer()
+
+    # Til keyin almashtirilganda: hech narsa chiqarilmaydi, faqat "qabul qilindi" va menyu yangi tilda
+    if was_chosen and current_user.group_id or (was_chosen and await TeacherService.get_approved(session, current_user.id)):
+        kb = get_admin_main_keyboard(lang) if current_user.role == UserRole.ADMIN else get_user_main_keyboard(lang)
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        await query.message.answer(t(lang, "language_saved"), reply_markup=kb)
+        return
 
     await query.message.edit_text(t(lang, "language_saved"))
-    await query.answer()
     await _show_welcome(query.message, state, current_user, session)

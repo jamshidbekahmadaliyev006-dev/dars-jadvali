@@ -51,6 +51,7 @@ from app.services.schedule_service import (
     SCHEDULE_VIEW_TTL_SECONDS,
     ScheduleService,
     current_local_date,
+    canonical_subject_names,
     normalize_subject_name,
     week_parity_for,
 )
@@ -414,7 +415,11 @@ async def process_schedule_input(
             )
             return
 
-        subject_count = len({normalize_subject_name(item.get("subject") or "")[0].lower() for item in lessons})
+        canonical = canonical_subject_names(lessons)
+        subject_count = len({
+            code or name.lower()
+            for name, code in (normalize_subject_name(item.get("subject") or "") for item in lessons)
+        })
 
         # O'qilgan jadvaldagi kamchiliklarni talabaga aniq aytamiz: qaysi dars, nima xato
         issues = schedule_issues(lessons, lang, from_image=bool(file_id))
