@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.handlers.registration import start_registration
-from app.bot.album import collect_album, looks_too_small, pack_file_ids, send_submission_files
+from app.bot.album import collect_album, pack_file_ids, send_submission_files, too_small_for_lessons
 from app.bot.i18n import NL, format_lesson_count, DAY_LABELS, STATUS_LABELS, format_counts, format_minutes, labels, lang_of, t
 from app.bot.keyboards.inline import (
     admin_review_keyboard,
@@ -399,6 +399,16 @@ async def process_schedule_input(
                 message, session, current_user, submission.id, file_id, "admin_read_failed",
                 file_ids=file_ids, is_document=is_document,
             )
+            return
+
+        # Rasm juda mayda: bir kunga juda kam piksel to'g'ri keladi (matn 9-10 px) - xona va vaqt ishonchsiz
+        # o'qiladi. Bunday jadval saqlanmaydi, tiniq rasm so'raladi (Telegram rasmni siqadi: fayl qilib yuborish yordam beradi).
+        if file_id and len(images) == 1 and too_small_for_lessons(images[0], lessons):
+            processed.status = SubmissionStatus.NEEDS_CORRECTION
+            processed.image_file_id = "-"
+            processed.image_url = None
+            await session.commit()
+            await loading_msg.edit_text(t(lang, "schedule_unclear"), parse_mode="HTML")
             return
 
         # Faqat bitta kun yoki bir-ikki dars (kesilgan rasm) butun guruh jadvali deb SAQLANMAYDI

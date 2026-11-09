@@ -184,4 +184,5 @@ EN = {
     'schedule_partial': '⚠️ <b>This timetable is incomplete</b>, so it was not saved.\n\nThe photo only shows: {days} ({lessons}).\n\nPlease send the <b>full weekly timetable</b> (Monday to Saturday, all days). If it does not fit in one photo, send several photos <b>together</b> (as an album) - the bot will read them as one timetable.',
     'lessons_skipped': '⚠️ {n} lesson(s) could not be read (day or time unclear). Resend the timetable if needed.',
     'faculty_write_full': '✍️ Write the faculty name <b>in full</b> (no abbreviations).\nFor example: Cybersecurity, Software Engineering, Economics',
+    'schedule_unclear': '📷 <b>The photo is not clear</b> - small text (rooms, times) could not be read reliably, so the timetable was <b>not saved</b> (to avoid entering wrong data).\n\nPlease send a <b>sharp</b> photo: zoom in on your phone so the table alone fills the screen and take a screenshot. Or send the image as a <b>file</b> (📎 → File).',
 }

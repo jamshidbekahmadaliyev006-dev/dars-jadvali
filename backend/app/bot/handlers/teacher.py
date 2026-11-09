@@ -374,7 +374,13 @@ async def _save_teacher_schedule(
         await loading.edit_text(t(lang, "read_failed"), parse_mode="HTML")
         return
 
+    from app.bot.album import too_small_for_lessons
     from app.bot.text_utils import MIN_TEACHER_DAYS, MIN_TEACHER_LESSONS, is_full_week, week_coverage
+
+    only_image = (images[0] if images and len(images) == 1 else image) if not text else None
+    if only_image and (images is None or len(images) <= 1) and too_small_for_lessons(only_image, items):
+        await loading.edit_text(t(lang, "schedule_unclear"), parse_mode="HTML")
+        return
 
     if items and not is_full_week(items, MIN_TEACHER_DAYS, MIN_TEACHER_LESSONS):
         days, count = week_coverage(items)

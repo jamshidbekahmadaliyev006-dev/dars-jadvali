@@ -165,6 +165,10 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "uz": "👆 <b>Jadval #{id}</b> — {n} ta rasm. Tekshirib, qaror qiling:",
         "ru": "👆 <b>Расписание #{id}</b> — фото: {n}. Проверьте и решите:",
     },
+    "schedule_unclear": {
+        "uz": "📷 <b>Rasm aniq emas</b> - mayda yozuvlar (xona, vaqt) ishonchli o'qilmadi, shuning uchun jadval <b>saqlanmadi</b> (noto'g'ri ma'lumot kiritmaslik uchun)."+NL+NL+"Iltimos, <b>tiniq</b> rasm yuboring: jadvalni telefonda kattalashtiring, faqat jadvalning o'zi ekranni to'ldirsin va skrinshot oling. Yoki rasmni <b>fayl</b> qilib yuboring (📎 → Fayl).",
+        "ru": "📷 <b>Фото нечёткое</b> - мелкий текст (аудитории, время) не удалось прочитать надёжно, поэтому расписание <b>не сохранено</b> (чтобы не вносить неверные данные)."+NL+NL+"Пожалуйста, отправьте <b>чёткое</b> фото: увеличьте расписание на телефоне, чтобы одна таблица занимала весь экран, и сделайте скриншот. Или отправьте фото <b>файлом</b> (📎 → Файл).",
+    },
     "schedule_partial": {
         "uz": "⚠️ <b>Bu jadval to'liq emas</b>, shuning uchun saqlanmadi."+NL+NL+"Rasmda faqat: {days} ({lessons}) ko'rindi."+NL+NL+"Iltimos, <b>butun haftalik jadvalni</b> (Dushanbadan Shanbagacha, hamma kunlar) yuboring. Jadval bir rasmga sig'masa, bir nechta rasmni <b>birga</b> (albom qilib) yuboring - bot ularni bitta jadval qilib o'qiydi.",
         "ru": "⚠️ <b>Расписание неполное</b>, поэтому не сохранено."+NL+NL+"На фото видно только: {days} ({lessons})."+NL+NL+"Пожалуйста, отправьте <b>расписание на всю неделю</b> (с понедельника по субботу, все дни). Если оно не помещается на одно фото, отправьте несколько фото <b>вместе</b> (альбомом) - бот прочитает их как одно расписание.",

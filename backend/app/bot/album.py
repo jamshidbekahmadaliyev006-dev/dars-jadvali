@@ -106,3 +106,22 @@ def looks_too_small(images) -> bool:
         if size and min(size) < MIN_SIDE_FOR_SMALL_TEXT:
             return True
     return False
+
+
+MIN_PX_PER_DAY = 150  # bir kun ustuniga shuncha pikseldan kam tushsa, yozuv (xona, vaqt) ishonchli o'qilmaydi
+MIN_DAYS_FOR_RULE = 3  # qoida faqat ko'p kunli (butun hafta) rasmga qo'llanadi: 1-2 kunlik kattalashtirilgan rasm normal
+
+
+def too_small_for_lessons(image: bytes, lessons) -> bool:
+    """
+    Bitta rasm uchun: kengligi / o'qilgan kunlar soni. 576 px kenglikka 5 kun sig'sa (115 px/kun) matn 9-10 px bo'ladi -
+    xira. Aniq rasmda 200+ px/kun. O'lcham bilib bo'lmasa yoki kunlar kam bo'lsa - rad etilmaydi.
+    """
+    from app.services.schedule_service import resolve_day_of_week
+
+    size = image_size(image)
+    days = {resolve_day_of_week(item.get("day")) for item in lessons}
+    days.discard(None)
+    if not size or len(days) < MIN_DAYS_FOR_RULE:
+        return False
+    return min(size) / len(days) < MIN_PX_PER_DAY if size[0] <= size[1] else size[0] / len(days) < MIN_PX_PER_DAY

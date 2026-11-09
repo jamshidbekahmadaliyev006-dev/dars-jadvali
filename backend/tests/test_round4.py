@@ -347,3 +347,80 @@ async def test_faculty_resolution_merges_variants_and_asks_for_full_names(db_ses
                         lambda: _FacultyAI({"match": None, "complete": False, "canonical": None}))
     assert await resolve_faculty_name(db_session, U, "Telekom") is None
     assert await resolve_faculty_name(db_session, U, "IT") is None
+
+
+def _png(w, h):
+    import struct, zlib
+
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IEND", b"")
+
+
+def test_photo_is_too_small_when_a_day_gets_too_few_pixels():
+    from app.bot.album import too_small_for_lessons
+
+    week = [{"day": d} for d in ("Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma")]
+    assert too_small_for_lessons(_png(576, 1280), week)          # 115 px/kun: sizning xira rasmingiz
+    assert not too_small_for_lessons(_png(1080, 2400), week)     # fayl qilib yuborilgan skrinshot: 216 px/kun
+    assert not too_small_for_lessons(_png(1280, 736), week)      # aniq rasm: 256 px/kun
+    assert not too_small_for_lessons(_png(576, 1280), week[:2])  # 2 kunlik kattalashtirilgan rasm - normal
+    assert not too_small_for_lessons(b"not an image", week)      # o'lcham noma'lum - rad etilmaydi
+
+
+@pytest.mark.asyncio
+async def test_unclear_photo_is_not_saved_and_user_is_asked_for_a_sharper_one(db_session: AsyncSession, monkeypatch):
+    from app.bot.handlers import user_menu
+    from app.models.enums import SubmissionStatus
+    from app.models.schedule import Schedule, ScheduleSubmission
+    from app.models.university import Faculty, Group, University
+    from sqlalchemy import select as sa_select
+
+    univ = University(name="TATU")
+    db_session.add(univ)
+    await db_session.commit()
+    fac = Faculty(name="KX", university_id=univ.id)
+    db_session.add(fac)
+    await db_session.commit()
+    grp = Group(name="712-24", university_id=univ.id, faculty_id=fac.id)
+    db_session.add(grp)
+    await db_session.commit()
+    student = User(telegram_id=9191, first_name="Aziz", role=UserRole.USER, university_id=univ.id,
+                   faculty_id=fac.id, group_id=grp.id, language_code="uz")
+    db_session.add(student)
+    await db_session.commit()
+
+    class WeekAI:
+        async def extract_schedule_from_image(self, data, name="x.jpg"):
+            from app.schemas.ai import ExtractedLessonItem, ExtractedScheduleResult
+            days = ["Dushanba", "Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma"]
+            return ExtractedScheduleResult(lessons=[
+                ExtractedLessonItem(day=d, subject=f"Fan {i}", start_time=f"{8 + i}:00", end_time=f"{9 + i}:00", room="A-1", building="A")
+                for i, d in enumerate(days)])
+
+    monkeypatch.setattr("app.services.ai_service.get_ai_provider", lambda: WeekAI())
+    monkeypatch.setattr(user_menu, "get_ai_provider", lambda: WeekAI())
+    monkeypatch.setattr(type(user_menu.settings), "admin_id_list", property(lambda self: [1]))
+
+    async def send(width, height):
+        msg = _message("", 9191)
+        msg.document = None
+        loading = MagicMock(edit_text=AsyncMock())
+        msg.answer = AsyncMock(return_value=loading)
+        msg.bot.get_file = AsyncMock(return_value=MagicMock(file_path="p"))
+        msg.bot.download_file = AsyncMock(return_value=MagicMock(read=lambda: _png(width, height)))
+        await user_menu.process_schedule_input(msg, student, db_session, file_ids=["f1"])
+        return msg, loading
+
+    # Xira (576 px, 5 kun): saqlanmaydi, tiniq rasm so'raladi, adminga ham ketmaydi
+    msg, loading = await send(576, 1280)
+    assert (await db_session.execute(sa_select(Schedule))).scalars().first() is None
+    sub = (await db_session.execute(sa_select(ScheduleSubmission))).scalars().first()
+    assert sub.status == SubmissionStatus.NEEDS_CORRECTION and sub.image_file_id == "-"
+    shown = loading.edit_text.call_args.args[0]
+    assert "Rasm aniq emas" in shown and "saqlanmadi" in shown and "tiniq" in shown and "fayl" in shown
+    msg.bot.send_message.assert_not_awaited()
+
+    # Aniq rasm (1080 px, 5 kun): odatdagidek saqlanadi
+    msg, loading = await send(1080, 2400)
+    assert (await db_session.execute(sa_select(Schedule))).scalars().first() is not None
