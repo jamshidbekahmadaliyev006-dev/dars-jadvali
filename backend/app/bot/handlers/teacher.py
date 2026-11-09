@@ -17,6 +17,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.handlers.registration import start_registration
+from app.bot.album import collect_album
 from app.bot.i18n import DAY_LABELS, NL, TEXTS, format_lesson_count, format_minutes, labels, lang_of, t
 from app.bot.keyboards.inline import week_days_keyboard
 from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
@@ -304,14 +305,19 @@ async def admin_review_teacher(query: CallbackQuery, current_user: User, session
 # --- Jadval yuklash (rasm / fayl / matn) ---
 async def _save_teacher_schedule(
     message: Message, user: User, teacher: TeacherProfile, session: AsyncSession,
-    image: Optional[bytes] = None, text: Optional[str] = None,
+    image: Optional[bytes] = None, text: Optional[str] = None, images: Optional[List[bytes]] = None,
 ) -> None:
     lang = lang_of(user)
     loading = await message.answer(t(lang, "reading"))
     await show_typing(message)
     try:
         provider = get_ai_provider()
-        result = await (provider.extract_schedule_from_text(text) if text else provider.extract_schedule_from_image(image))
+        if text:
+            result = await provider.extract_schedule_from_text(text)
+        elif images and len(images) > 1:
+            result = await provider.extract_schedule_from_images(images)
+        else:
+            result = await provider.extract_schedule_from_image(image or (images[0] if images else b""))
         items = [lesson.model_dump() for lesson in result.lessons]
     except Exception as e:
         logger.error(f"Teacher schedule AI error: {e}")
@@ -352,8 +358,12 @@ async def _download(message: Message, file_id: str) -> bytes:
 
 @router.message(F.photo, ApprovedTeacher())
 async def teacher_photo(message: Message, state: FSMContext, current_user: User, session: AsyncSession, teacher: TeacherProfile):
+    file_ids = await collect_album(message, message.photo[-1].file_id)
+    if file_ids is None:
+        return
     await state.clear()
-    await _save_teacher_schedule(message, current_user, teacher, session, image=await _download(message, message.photo[-1].file_id))
+    images = [await _download(message, fid) for fid in file_ids]
+    await _save_teacher_schedule(message, current_user, teacher, session, image=images[0], images=images)
 
 
 @router.message(F.document.mime_type.startswith("image/"), ApprovedTeacher())
@@ -361,8 +371,12 @@ async def teacher_document(message: Message, state: FSMContext, current_user: Us
     if (message.document.file_size or 0) > 15 * 1024 * 1024:
         await message.answer(t(lang_of(current_user), "file_too_big"))
         return
+    file_ids = await collect_album(message, message.document.file_id)
+    if file_ids is None:
+        return
     await state.clear()
-    await _save_teacher_schedule(message, current_user, teacher, session, image=await _download(message, message.document.file_id))
+    images = [await _download(message, fid) for fid in file_ids]
+    await _save_teacher_schedule(message, current_user, teacher, session, image=images[0], images=images)
 
 
 def _is_schedule_text(message: Message) -> bool:

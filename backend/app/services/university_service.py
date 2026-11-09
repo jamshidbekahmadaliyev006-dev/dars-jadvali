@@ -38,7 +38,9 @@ def name_key(value: str) -> str:
 
 def group_key(value: str) -> str:
     """712-24, 712_24, '712 24', '712-24 guruh' - hammasi bir xil kalit beradi"""
-    return name_key(_GROUP_NOISE_WORDS.sub(" ", value or ""))
+    cleaned = _GROUP_NOISE_WORDS.sub(" ", value or "").lower()
+    parts = re.findall(r"[^\W_]+", cleaned)  # harf/raqam bo'laklari; _ - / . bo'shliq - hammasi ajratgich
+    return "-".join(parts)
 
 
 def acronym(value: str) -> str:

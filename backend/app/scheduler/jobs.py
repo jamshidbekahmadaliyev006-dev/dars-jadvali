@@ -29,6 +29,41 @@ PERMANENT_SEND_ERRORS = (
 )
 
 
+# Oldingi dars tugashi bilan keyingisi orasidagi oraliq shundan oshmasa - "ketma-ket dars" hisoblanadi
+CONSECUTIVE_GAP_MINUTES = 30
+
+
+def _to_minutes(value: str) -> int:
+    hours, minutes = map(int, value.split(":")[:2])
+    return hours * 60 + minutes
+
+
+def _same_room_continuations(lessons) -> set:
+    """
+    lessons: (owner, start, end, room, id). Bir egasining (guruh / o'qituvchi) darsi uning oldingi
+    darsidan keyin darhol (30 daqiqagacha tanaffus) va AYNAN SHU XONADA bo'lsa - eslatma yuborilmaydi:
+    talaba/o'qituvchi allaqachon o'sha xonada o'tiribdi. Xona boshqa bo'lsa - eslatma odatdagidek ketadi.
+    """
+    skip = set()
+    by_owner = {}
+    for owner, start, end, room, lesson_id in lessons:
+        try:
+            by_owner.setdefault(owner, []).append((_to_minutes(start), _to_minutes(end), room, lesson_id))
+        except Exception:
+            continue
+    for items in by_owner.values():
+        items.sort()
+        for prev, cur in zip(items, items[1:]):
+            same_room = (
+                prev[2] is not None and cur[2] is not None
+                and str(prev[2]).strip().lower() == str(cur[2]).strip().lower()
+            )
+            consecutive = 0 <= cur[0] - prev[1] <= CONSECUTIVE_GAP_MINUTES
+            if same_room and consecutive:
+                skip.add(cur[3])
+    return skip
+
+
 async def check_and_send_lesson_reminders():
     """
     Har 60 soniyada ishga tushib, yaqinlashib kelayotgan darslar uchun talabalarga
@@ -70,8 +105,13 @@ async def check_and_send_lesson_reminders():
 async def _process_schedules(session: AsyncSession, schedules, now: datetime) -> None:
     """Berilgan darslar ro'yxati bo'yicha har bir talabaga eslatma yuborish kerakligini tekshiradi"""
     bot = get_bot()
+    same_room_skip = _same_room_continuations(
+        [(s.group_id, s.start_time, s.end_time, s.room_id, s.id) for s in schedules]
+    )
 
     for sched in schedules:
+        if sched.id in same_room_skip:
+            continue  # talaba oldingi darsdan beri shu xonada - eslatma shart emas
         try:
             # Dars boshlanish vaqtini pars qilish (masalan "09:00")
             sched_h, sched_m = map(int, sched.start_time.split(":"))
@@ -179,8 +219,13 @@ async def _process_teacher_lessons(session: AsyncSession, today_enum: DayOfWeek,
     if not rows:
         return
     bot = get_bot()
+    same_room_skip = _same_room_continuations(
+        [(lesson.teacher_id, lesson.start_time, lesson.end_time, lesson.room, lesson.id) for lesson, _, _ in rows]
+    )
 
     for lesson, profile, user in rows:
+        if lesson.id in same_room_skip:
+            continue
         try:
             hour, minute = map(int, lesson.start_time.split(":"))
             lesson_start_dt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)

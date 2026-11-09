@@ -33,6 +33,21 @@ class BaseAIProvider(ABC):
         """Nom haqiqiy universitet/fakultet/kafedraga o'xshaydimi; bilib bo'lmasa None"""
         return None
 
+    async def extract_schedule_from_images(
+        self, images: List[bytes], filenames: Optional[List[str]] = None
+    ) -> ExtractedScheduleResult:
+        """Standart: rasmlar navbatma-navbat o'qiladi va darslar birlashtiriladi (takrorlarsiz)"""
+        lessons, seen = [], set()
+        for index, data in enumerate(images):
+            name = (filenames or [])[index] if filenames and index < len(filenames) else "schedule.jpg"
+            result = await self.extract_schedule_from_image(data, name)
+            for lesson in result.lessons:
+                key = (lesson.day, lesson.start_time, lesson.subject, lesson.week_parity)
+                if key not in seen:
+                    seen.add(key)
+                    lessons.append(lesson)
+        return ExtractedScheduleResult(lessons=lessons, confidence=0.9)
+
     async def extract_schedule_from_text(self, text: str) -> ExtractedScheduleResult:
         """Talaba qo'lda yozgan jadval matnidan darslarni ajratib olish"""
         raise RuntimeError("Bu AI provayderi jadval matnini o'qiy olmaydi")
@@ -205,10 +220,21 @@ class GeminiAIProvider(BaseAIProvider):
         return await self._extract({"contents": [{"parts": [{"text": prompt}]}]})
 
     async def extract_schedule_from_image(self, image_bytes: bytes, filename: str = "schedule.jpg") -> ExtractedScheduleResult:
-        base64_data = base64.b64encode(image_bytes).decode("utf-8")
-        mime_type = _detect_image_mime(image_bytes, filename)
+        return await self.extract_schedule_from_images([image_bytes], [filename])
 
-        prompt = (
+    async def extract_schedule_from_images(
+        self, images: List[bytes], filenames: Optional[List[str]] = None
+    ) -> ExtractedScheduleResult:
+        """Bir yoki bir nechta rasm (bitta jadvalning qismlari) - bitta so'rovda birga o'qiladi"""
+        filenames = filenames or ["schedule.jpg"] * len(images)
+        multi = (
+            f"Sizga {len(images)} ta rasm berildi - bu BITTA guruhning bitta jadvalining qismlari (masalan turli kunlar, "
+            "turli haftalar yoki ekranning turli bo'laklari). Hamma rasmlardagi darslarni birlashtirib bitta ro'yxat "
+            "qiling. Bir xil darsni (kun, vaqt, fan bir xil) ikki marta yozmang.\n"
+            if len(images) > 1 else ""
+        )
+
+        prompt = multi + (
             "Bu universitet haftalik dars jadvali rasmi. U har xil ko'rinishda bo'lishi mumkin: HEMIS skrinshoti "
             "(rangli bloklar), Excel/Word jadvali, qog'ozdagi jadval fotosi, telefon skrinshoti, o'zbek yoki rus tilida. "
             "Avval jadval tuzilishini aniqlang: kunlar ustunlardami yoki qatorlarda, vaqt qayerda yozilgan.\n"
@@ -226,21 +252,19 @@ class GeminiAIProvider(BaseAIProvider):
             "room hech qachon tire bilan boshlanmasin ('-407' emas, '407').\n"
             "Fan nomi va kodini aynan ko'chiring. O'qituvchi ko'rinsa teacher ga yozing. Dars turi ko'rinsa "
             "(ma'ruza=LECTURE, amaliy=PRACTICE, laboratoriya=LAB, seminar=SEMINAR), aks holda OTHER. "
+            "GURUH: rasmning sarlavhasida yoki darslarda guruh nomi (masalan '712-24') ko'rinsa, uni har bir "
+            "darsning group maydoniga yozing; ko'rinmasa null.\n"
             "Faqat rasmda ko'ringan narsani yozing, hech narsa to'qimang. Rasm dars jadvali bo'lmasa, [] qaytaring. "
             + self.JSON_FORMAT
         )
 
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt},
-                        {"inline_data": {"mime_type": mime_type, "data": base64_data}},
-                    ]
-                }
-            ],
-        }
-        return await self._extract(payload)
+        parts: List[Dict[str, Any]] = [{"text": prompt}]
+        for data, name in zip(images, filenames):
+            parts.append({"inline_data": {
+                "mime_type": _detect_image_mime(data, name),
+                "data": base64.b64encode(data).decode("utf-8"),
+            }})
+        return await self._extract({"contents": [{"parts": parts}]})
 
     async def _extract(self, payload: Dict[str, Any]) -> ExtractedScheduleResult:
         payload = {
@@ -346,6 +370,13 @@ class GroqAIProvider(BaseAIProvider):
     async def extract_schedule_from_image(self, image_bytes: bytes, filename: str = "schedule.jpg") -> ExtractedScheduleResult:
         if self.vision_provider:
             return await self.vision_provider.extract_schedule_from_image(image_bytes, filename)
+        raise RuntimeError("Rasm o'qish uchun GEMINI_API_KEY kerak: Groq hisobida vision model yo'q")
+
+    async def extract_schedule_from_images(
+        self, images: List[bytes], filenames: Optional[List[str]] = None
+    ) -> ExtractedScheduleResult:
+        if self.vision_provider:
+            return await self.vision_provider.extract_schedule_from_images(images, filenames)
         raise RuntimeError("Rasm o'qish uchun GEMINI_API_KEY kerak: Groq hisobida vision model yo'q")
 
     async def extract_schedule_from_text(self, text: str) -> ExtractedScheduleResult:

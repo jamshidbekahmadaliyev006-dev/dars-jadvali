@@ -292,3 +292,68 @@ async def test_user_categories_always_add_up_to_total(db_session: AsyncSession):
     assert c["teachers"] + c["pending"] + c["students"] + c["unregistered"] == c["total"]
     text = await _users_message(db_session, "uz")
     assert "Jami: <b>7</b>" in text and "tugatmagan: <b>3</b>" in text and "kutayotgan" in text
+
+
+def test_reminder_skipped_only_when_next_lesson_is_in_the_same_room():
+    from app.scheduler.jobs import _same_room_continuations
+
+    lessons = [
+        (1, "08:00", "09:30", "A-327", 10),
+        (1, "09:30", "11:00", "A-327", 11),   # xuddi shu xona - eslatma yo'q
+        (1, "11:00", "12:30", "B-210", 12),   # boshqa xona - eslatma bor
+        (1, "12:30", "14:00", "B-210", 13),   # yana shu xona - yo'q
+        (1, "16:00", "17:30", "B-210", 14),   # uzoq tanaffusdan keyin - eslatma bor
+        (2, "09:30", "11:00", "A-327", 20),   # boshqa guruh - o'zi birinchi dars, eslatma bor
+        (3, "08:00", "09:30", None, 30),
+        (3, "09:30", "11:00", None, 31),      # xona noma'lum - eslatma yuboriladi
+    ]
+    assert _same_room_continuations(lessons) == {11, 13}
+
+
+@pytest.mark.asyncio
+async def test_album_waits_and_returns_all_files_once(monkeypatch):
+    from app.bot import album
+
+    monkeypatch.setattr(album, "ALBUM_WAIT_SECONDS", 0.05)
+    def msg(i):
+        m = _message("", 5)
+        m.media_group_id = "g1"
+        return m
+
+    import asyncio
+    results = await asyncio.gather(*[album.collect_album(msg(i), f"f{i}") for i in range(3)])
+    assert sorted(r for r in results if r) == [["f0", "f1", "f2"]]
+    assert results.count(None) == 2
+    single = _message("", 5)
+    single.media_group_id = None
+    assert await album.collect_album(single, "only") == ["only"]
+
+
+@pytest.mark.asyncio
+async def test_photo_of_another_group_is_flagged(db_session: AsyncSession):
+    from app.bot.handlers.user_menu import _group_mismatch
+    from app.models.university import Faculty, Group, University
+
+    univ = University(name="TATU")
+    db_session.add(univ)
+    await db_session.commit()
+    fac = Faculty(name="KX", university_id=univ.id)
+    db_session.add(fac)
+    await db_session.commit()
+    grp = Group(name="712-24", university_id=univ.id, faculty_id=fac.id)
+    db_session.add(grp)
+    await db_session.commit()
+    user = User(telegram_id=5100, first_name="T", role=UserRole.USER, group_id=grp.id, university_id=univ.id)
+
+    assert await _group_mismatch(db_session, user, [{"group": "712_24"}]) is None
+    assert await _group_mismatch(db_session, user, [{"group": "712-24, 732-24"}]) is None
+    assert await _group_mismatch(db_session, user, [{"group": None}]) is None
+    assert await _group_mismatch(db_session, user, [{"group": "732-24"}]) == "732-24"
+
+
+def test_group_key_keeps_number_boundaries():
+    from app.services.university_service import group_key
+
+    assert group_key("712-24") == group_key("712_24") == group_key("712 24") == group_key("712/24")
+    assert group_key("7-12") != group_key("712")
+    assert group_key("71224") != group_key("712-24")

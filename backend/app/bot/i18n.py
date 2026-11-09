@@ -144,15 +144,13 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "ru": "«{a}» и «{b}» пересекаются по времени",
     },
     "btn_schedule_changed": {"uz": "🔄 Jadval o'zgardi", "ru": "🔄 Расписание изменилось"},
+    "group_mismatch": {
+        "uz": "⚠️ Rasmda boshqa guruh ko'rinyapti: <b>{seen}</b>. Jadval admin tekshiruvidan keyin saqlanadi.",
+        "ru": "⚠️ На фото другая группа: <b>{seen}</b>. Расписание сохранится после проверки админом.",
+    },
     "schedule_change_prompt": {
-        "uz": "🔄 <b>Jadval o'zgardimi?</b>\n\nYangi jadvalning <b>rasmini</b> (yoki faylini) yuboring, "
-              "yoki o'zgarishni <b>yozib</b> yuboring. Butun haftani yozing, masalan:\n\n"
-              "<code>Dushanba 08:00-09:30 Matematika A-327</code>\n\n"
-              "AI o'qib chiqadi, admin tasdiqlagach guruhingiz jadvali yangilanadi.",
-        "ru": "🔄 <b>Расписание изменилось?</b>\n\nОтправьте <b>фото</b> (или файл) нового расписания "
-              "или <b>напишите</b> его текстом за всю неделю, например:\n\n"
-              "<code>Понедельник 08:00-09:30 Математика A-327</code>\n\n"
-              "AI распознает его, и после подтверждения админом расписание группы обновится.",
+        "uz": "🔄 <b>Jadval o'zgardimi?</b>"+NL+"Yangi jadval rasmini yoki matnini yuboring.",
+        "ru": "🔄 <b>Расписание изменилось?</b>"+NL+"Отправьте фото или текст нового расписания.",
     },
     "file_too_big": {"uz": "❗ Fayl juda katta (15 MB dan kichik bo'lsin).", "ru": "❗ Файл слишком большой (до 15 МБ)."},
     # O'qituvchilar

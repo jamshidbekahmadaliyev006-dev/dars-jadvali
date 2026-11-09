@@ -1,7 +1,7 @@
 from datetime import datetime
 import json
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 import pytz
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +24,7 @@ class AIService:
         image_bytes: bytes,
         filename: str = "schedule.jpg",
         text: Optional[str] = None,
+        images: Optional[List[bytes]] = None,
     ) -> ScheduleSubmission:
         """Talaba yuborgan screenshotni AI orqali tahlil qilish va navbatga qo'yish"""
         stmt = select(ScheduleSubmission).where(ScheduleSubmission.id == submission_id)
@@ -42,6 +43,8 @@ class AIService:
         try:
             if text:
                 extraction = await ai_provider.extract_schedule_from_text(text)
+            elif images and len(images) > 1:
+                extraction = await ai_provider.extract_schedule_from_images(images)
             else:
                 extraction = await ai_provider.extract_schedule_from_image(image_bytes, filename)
             elapsed_ms = int((time.time() - start_time) * 1000)

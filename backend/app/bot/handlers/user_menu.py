@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import json
+import re
 import time
 from typing import List, Optional
 import pytz
@@ -12,6 +13,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.handlers.registration import start_registration
+from app.bot.album import collect_album
 from app.bot.i18n import DAY_LABELS, STATUS_LABELS, format_counts, format_minutes, labels, lang_of, t
 from app.bot.keyboards.inline import (
     admin_review_keyboard,
@@ -241,10 +243,13 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
         await start_registration(message, state, session, lang)
         return
 
+    file_ids = await collect_album(message, message.photo[-1].file_id)
+    if file_ids is None:
+        return  # albomning keyingi rasmi - birinchisi bilan birga o'qiladi
     change_request = _is_change_request(await state.get_data())
     await state.clear()
     await process_schedule_input(
-        message, current_user, session, file_id=message.photo[-1].file_id, change_request=change_request
+        message, current_user, session, file_ids=file_ids, change_request=change_request
     )
 
 
@@ -259,12 +264,32 @@ async def handle_schedule_document_upload(message: Message, current_user: User, 
         await message.answer(t(lang, "file_too_big"))
         return
 
+    file_ids = await collect_album(message, message.document.file_id)
+    if file_ids is None:
+        return
     change_request = _is_change_request(await state.get_data())
     await state.clear()
     await process_schedule_input(
-        message, current_user, session, file_id=message.document.file_id, is_document=True,
-        change_request=change_request,
+        message, current_user, session, file_ids=file_ids, is_document=True, change_request=change_request,
     )
+
+
+async def _group_mismatch(session: AsyncSession, user: User, lessons: List[dict]) -> Optional[str]:
+    """Darslarda ko'rsatilgan guruhlar bor-u, talabaning guruhi ular orasida yo'q bo'lsa - o'sha nom"""
+    from app.services.university_service import UniversityService, group_key
+
+    seen = {str(item.get("group")).strip() for item in lessons if item.get("group")}
+    if not seen or not user.group_id:
+        return None
+    group = await UniversityService.get_group_by_id(session, user.group_id)
+    if not group:
+        return None
+    own = group_key(group.name)
+    for value in seen:
+        # "712-24, 732-24" kabi birgalikdagi yozuvlar
+        if own in {group_key(part) for part in re.split(r"[,;]+", value) if part.strip()}:
+            return None
+    return ", ".join(sorted(seen))[:60]
 
 
 async def process_schedule_input(
@@ -275,15 +300,18 @@ async def process_schedule_input(
     schedule_text: Optional[str] = None,
     is_document: bool = False,
     change_request: bool = False,
+    file_ids: Optional[List[str]] = None,
 ) -> None:
-    """Jadval rasmi (file_id) yoki qo'lda yozilgan jadval matnini AI orqali o'qib saqlaydi"""
+    """Jadval rasmlari (bir yoki bir nechta) yoki qo'lda yozilgan jadval matnini AI orqali o'qib saqlaydi"""
     lang = lang_of(current_user)
+    file_ids = file_ids or ([file_id] if file_id else [])
+    file_id = file_ids[0] if file_ids else None
     payload = ScheduleSubmissionCreate(
         university_id=current_user.university_id,
         faculty_id=current_user.faculty_id,
         group_id=current_user.group_id,
         image_file_id=file_id or "text",
-        image_url=f"tg://file/{file_id}" if file_id else f"text:{(schedule_text or '')[:480]}",
+        image_url=(",".join(f"tg://file/{f}" for f in file_ids)[:500]) if file_ids else f"text:{(schedule_text or '')[:480]}",
     )
     submission = await ScheduleService.create_submission(session, current_user.id, payload)
 
@@ -291,10 +319,11 @@ async def process_schedule_input(
     await show_typing(message)
 
     try:
-        image_bytes = b""
-        if file_id:
-            file_info = await message.bot.get_file(file_id)
-            image_bytes = (await message.bot.download_file(file_info.file_path)).read()
+        images: List[bytes] = []
+        for fid in file_ids:
+            file_info = await message.bot.get_file(fid)
+            images.append((await message.bot.download_file(file_info.file_path)).read())
+        image_bytes = images[0] if images else b""
 
         processed = await AIService.process_schedule_submission(
             session=session,
@@ -302,6 +331,7 @@ async def process_schedule_input(
             image_bytes=image_bytes,
             filename=f"tg_{file_id}.jpg",
             text=schedule_text,
+            images=images,
         )
 
         lessons: List[dict] = []
@@ -340,7 +370,14 @@ async def process_schedule_input(
         # Namuna (mock) provayder natijasi hech qachon haqiqiy jadvalga yozilmaydi
         is_real_ai = not isinstance(get_ai_provider(), MockAIProvider)
         # "Jadval o'zgardi" orqali kelgan jadval hech qachon o'zi saqlanmaydi - faqat admin tasdiqlaydi
-        can_auto_approve = is_real_ai and not change_request and (is_admin or not existing_schedules)
+        # Rasmda boshqa guruh nomi yozilgan bo'lsa (masalan talaba do'stining jadvalini yuborsa) -
+        # jadval o'zi saqlanmaydi, admin ko'rib chiqadi
+        group_mismatch = await _group_mismatch(session, current_user, lessons)
+        if group_mismatch:
+            await message.answer(t(lang, "group_mismatch", seen=esc(group_mismatch)), parse_mode="HTML")
+        can_auto_approve = (
+            is_real_ai and not change_request and not group_mismatch and (is_admin or not existing_schedules)
+        )
 
         if not can_auto_approve:
             summary = format_counts(subject_count, len(lessons), lang)
