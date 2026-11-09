@@ -121,3 +121,47 @@ async def test_lesson_reminders_job(db_session: AsyncSession, monkeypatch, same_
     assert logs[0].is_success is True
     assert "Web Dasturlash" in logs[0].body
     assert "Занятие через" in logs[0].body
+
+
+@pytest.mark.asyncio
+async def test_reminder_to_user_who_blocked_bot_is_not_retried_every_minute(db_session: AsyncSession, monkeypatch):
+    tz = pytz.timezone(settings.TIMEZONE)
+    now = datetime.now(tz)
+    start_dt = now + timedelta(minutes=10)
+    if start_dt.date() != now.date():
+        pytest.skip("Yarim tunga yaqin")
+    day_names = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]
+
+    univ = University(name="TATU Blok")
+    db_session.add(univ)
+    await db_session.commit()
+    fac = Faculty(name="KX", university_id=univ.id)
+    subj = Subject(name="Fizika", university_id=univ.id)
+    db_session.add_all([fac, subj])
+    await db_session.commit()
+    grp = Group(name="B-1", university_id=univ.id, faculty_id=fac.id)
+    db_session.add(grp)
+    await db_session.commit()
+    db_session.add(Schedule(
+        university_id=univ.id, group_id=grp.id, subject_id=subj.id,
+        day_of_week=DayOfWeek[day_names[now.weekday()]],
+        start_time=start_dt.strftime("%H:%M"), end_time=(start_dt + timedelta(minutes=80)).strftime("%H:%M"),
+        lesson_type=LessonType.LECTURE, week_parity=WeekParity.ALL,
+    ))
+    db_session.add(User(telegram_id=999000111, first_name="Blok", role=UserRole.USER, group_id=grp.id, university_id=univ.id))
+    await db_session.commit()
+    db_session.expunge_all()
+
+    calls = []
+
+    class BlockedBot:
+        async def send_message(self, chat_id, **kwargs):
+            calls.append(chat_id)
+            raise Exception("Telegram server says - Forbidden: bot was blocked by the user")
+
+    monkeypatch.setattr(scheduler_jobs, "AsyncSessionLocal", lambda: TestingSessionLocal())
+    monkeypatch.setattr(scheduler_jobs, "get_bot", lambda: BlockedBot())
+    for _ in range(3):
+        await check_and_send_lesson_reminders()
+
+    assert calls == [999000111]  # bir marta urinildi, keyingi daqiqalarda qayta urinilmadi

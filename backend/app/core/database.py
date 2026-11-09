@@ -16,6 +16,19 @@ engine = create_async_engine(
     connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
 )
 
+if "sqlite" in settings.DATABASE_URL:
+    from sqlalchemy import event
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _sqlite_pragmas(dbapi_connection, _record):
+        """Ko'p foydalanuvchi bir vaqtda yozganda qotib qolmasligi uchun: WAL + kutish vaqti"""
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=15000")
+        cursor.close()
+
+
 # Async session maker
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,

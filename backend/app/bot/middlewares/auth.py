@@ -39,6 +39,11 @@ class AuthMiddleware(BaseMiddleware):
                     await event.answer("⚠️ Kechirasiz, sizning hisobingiz tizim tomonidan bloklangan.")
                 return
 
+            if is_new:
+                # Har bir yangi foydalanuvchida eslatma darhol yoqilgan: darsdan 15 daqiqa oldin
+                from app.services.schedule_service import ScheduleService
+                await ScheduleService.get_or_create_reminder_setting(session, user.id)
+
             data["current_user"] = user
             data["is_new_user"] = is_new
             return await handler(event, data)

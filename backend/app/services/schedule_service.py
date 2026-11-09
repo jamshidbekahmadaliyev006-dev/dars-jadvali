@@ -42,6 +42,12 @@ DAY_NAME_MAP: Dict[str, DayOfWeek] = {
 }
 
 
+# Kun tugmalari tez almashishi uchun tayyor matnlar keshi: (guruh, til, kun, hafta turi) -> (vaqt, matn).
+# Jadval tasdiqlanganda (review_submission) to'liq tozalanadi.
+SCHEDULE_VIEW_CACHE: Dict[tuple, tuple] = {}
+SCHEDULE_VIEW_TTL_SECONDS = 120
+
+
 def resolve_day_of_week(raw: Optional[str]) -> Optional[DayOfWeek]:
     """AI tomonidan qaytarilgan erkin matndagi kun nomini DayOfWeek enumiga aylantirish"""
     if not raw:
@@ -240,6 +246,7 @@ class ScheduleService:
         if not submission:
             return None
 
+        SCHEDULE_VIEW_CACHE.clear()  # jadval o'zgarishi mumkin - tayyor ko'rinishlar eskiradi
         submission.status = review.status
         submission.reviewer_id = reviewer_id
         submission.admin_notes = review.admin_notes
@@ -292,6 +299,13 @@ class ScheduleService:
                         f"⚠️ Tasdiqlandi, lekin darslarni avtomatik yaratishda xatolik: {e}"
                     ).strip()
                     await session.commit()
+
+        # Qaror qabul qilindi: rasmga havola endi kerak emas (rasm Telegram'da turadi, bizda faqat nom).
+        # Kerakli ma'lumot - darslar - "schedules" jadvalida saqlangan.
+        if submission.status in (SubmissionStatus.APPROVED, SubmissionStatus.REJECTED):
+            submission.image_file_id = "-"
+            submission.image_url = None
+            await session.commit()
 
         await session.refresh(submission)
         return submission
@@ -392,9 +406,13 @@ class ScheduleService:
                 teacher = await ScheduleService._get_or_create_teacher(session, submission.university_id, teacher_name)
 
             room = None
-            room_number = (item.get("room") or "").strip()
+            room_number = (item.get("room") or "").strip().strip("()").lstrip("-–— ").strip()
+            building_label = (item.get("building") or "").strip().strip("()").rstrip("-–— ").strip()
+            if room_number and building_label and not room_number.lower().startswith(building_label.lower()):
+                # Talabaga ko'rinadigan xona yozuvi binoni ham o'z ichiga olsin: "A-327"
+                room_number = f"{building_label}-{room_number}"
             if room_number:
-                building_name = (item.get("building") or "").strip() or "Bosh bino"
+                building_name = building_label or "Bosh bino"
                 building = await ScheduleService._get_or_create_building(session, submission.university_id, building_name)
                 room = await ScheduleService._get_or_create_room(session, building.id, room_number)
 

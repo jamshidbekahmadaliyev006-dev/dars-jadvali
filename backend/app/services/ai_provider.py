@@ -1,11 +1,24 @@
 from abc import ABC, abstractmethod
+import asyncio
 import base64
 import json
+import time
 from typing import Any, Dict, List, Optional
 import httpx
 from app.core.config import settings
 from app.core.logging import logger
 from app.schemas.ai import ExtractedLessonItem, ExtractedScheduleResult
+
+
+def _detect_image_mime(data: bytes, filename: str = "") -> str:
+    """Fayl sifatida yuborilgan rasm PNG yoki WEBP bo'lishi mumkin - turini baytlardan aniqlaymiz"""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if filename.lower().endswith(".png"):
+        return "image/png"
+    return "image/jpeg"
 
 
 class BaseAIProvider(ABC):
@@ -15,6 +28,29 @@ class BaseAIProvider(ABC):
     async def extract_schedule_from_image(self, image_bytes: bytes, filename: str = "schedule.jpg") -> ExtractedScheduleResult:
         """Dars jadvali screenshotidan darslarni strukturali JSON ko'rinishida ajratib olish"""
         pass
+
+    async def judge_name(self, kind: str, value: str) -> Optional[bool]:
+        """Nom haqiqiy universitet/fakultet/kafedraga o'xshaydimi; bilib bo'lmasa None"""
+        return None
+
+    async def extract_schedule_from_images(
+        self, images: List[bytes], filenames: Optional[List[str]] = None
+    ) -> ExtractedScheduleResult:
+        """Standart: rasmlar navbatma-navbat o'qiladi va darslar birlashtiriladi (takrorlarsiz)"""
+        lessons, seen = [], set()
+        for index, data in enumerate(images):
+            name = (filenames or [])[index] if filenames and index < len(filenames) else "schedule.jpg"
+            result = await self.extract_schedule_from_image(data, name)
+            for lesson in result.lessons:
+                key = (lesson.day, lesson.start_time, lesson.subject, lesson.week_parity)
+                if key not in seen:
+                    seen.add(key)
+                    lessons.append(lesson)
+        return ExtractedScheduleResult(lessons=lessons, confidence=0.9)
+
+    async def extract_schedule_from_text(self, text: str) -> ExtractedScheduleResult:
+        """Talaba qo'lda yozgan jadval matnidan darslarni ajratib olish"""
+        raise RuntimeError("Bu AI provayderi jadval matnini o'qiy olmaydi")
 
     @abstractmethod
     async def chat_student_assistant(self, query: str, context: Dict[str, Any]) -> str:
@@ -27,6 +63,9 @@ class MockAIProvider(BaseAIProvider):
     Offline va test rejimida yoki API key bo'lmaganda ishlovchi Mock provayder.
     Tizimni to'xtatib qo'ymasdan realistik ma'lumotlar bilan ta'minlaydi.
     """
+
+    async def extract_schedule_from_text(self, text: str) -> ExtractedScheduleResult:
+        return await self.extract_schedule_from_image(b"")
 
     async def extract_schedule_from_image(self, image_bytes: bytes, filename: str = "schedule.jpg") -> ExtractedScheduleResult:
         logger.info("MockAIProvider: Simulating schedule extraction from image.")
@@ -136,9 +175,18 @@ class GeminiAIProvider(BaseAIProvider):
 
     # Yengil modellar real jadval rasmini ~5 soniyada o'qiydi; gemini-flash-latest esa band
     # paytda 503 qaytarib, 40 soniyadan ko'proq ushlab turadi. Birinchisi ishlamasa ikkinchisi.
-    VISION_MODELS = ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
+    # Tez modellar oldinda; ular band bo'lsa (503) zaxira modellar ishlatiladi
+    VISION_MODELS = (
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-2.5-flash-lite",
+        "gemini-3.5-flash",
+        "gemini-2.5-flash",
+    )
     CHAT_MODEL = "gemini-3.5-flash-lite"
     REQUEST_TIMEOUT_SECONDS = 30.0
+    TOTAL_BUDGET_SECONDS = 75.0
 
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -148,32 +196,79 @@ class GeminiAIProvider(BaseAIProvider):
         # Kalit URL'da emas, sarlavhada: URL'lar loglarga yoziladi
         return {"x-goog-api-key": self.api_key}
 
-    async def extract_schedule_from_image(self, image_bytes: bytes, filename: str = "schedule.jpg") -> ExtractedScheduleResult:
-        base64_data = base64.b64encode(image_bytes).decode("utf-8")
-        mime_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
+    JSON_FORMAT = (
+        "Faqat JSON massiv qaytaring, har bir element kalitlari: "
+        "day (Dushanba, Seshanba, Chorshanba, Payshanba, Juma, Shanba, Yakshanba), subject, "
+        "teacher (yo'q bo'lsa null), start_time (HH:MM), end_time (HH:MM), building (yo'q bo'lsa null), "
+        "room (yo'q bo'lsa null), lesson_type (LECTURE, PRACTICE, LAB, SEMINAR yoki OTHER), "
+        "week_parity (toq hafta=ODD, juft hafta=EVEN, belgi bo'lmasa=ALL), "
+        "group (dars qaysi guruh bilan - guruh nomi ko'rinsa, masalan '712-24'; o'qituvchi jadvalida muhim; bo'lmasa null)."
+    )
 
+    async def extract_schedule_from_text(self, text: str) -> ExtractedScheduleResult:
         prompt = (
-            "Bu universitet haftalik dars jadvali rasmi. Har bir rangli blok yoki jadval katagi bitta dars. "
-            "Ustun yoki qator sarlavhasi kun, blokdagi vaqt boshlanish vaqti. Tugash vaqti yozilmagan bo'lsa, "
-            "blok balandligi va vaqt o'qidan aniqlang. Bir vaqtda ikkita dars bo'lsa, ikkalasini ham yozing. "
-            "Fan nomi va xonani rasmda qanday yozilgan bo'lsa, aynan shunday ko'chiring. "
-            "Faqat rasmda ko'ringan narsani yozing, hech narsa to'qimang. Rasm dars jadvali bo'lmasa, [] qaytaring. "
-            "Faqat JSON massiv qaytaring, har bir element kalitlari: "
-            "day (Dushanba, Seshanba, Chorshanba, Payshanba, Juma, Shanba, Yakshanba), subject, "
-            "teacher (yo'q bo'lsa null), start_time (HH:MM), end_time (HH:MM), building (yo'q bo'lsa null), "
-            "room (yo'q bo'lsa null), lesson_type (LECTURE, PRACTICE, LAB, SEMINAR yoki OTHER), "
-            "week_parity (toq hafta=ODD, juft hafta=EVEN, belgi bo'lmasa=ALL)."
+            "Talaba o'z haftalik dars jadvalini matn ko'rinishida yozdi (o'zbek yoki rus tilida, "
+            "qisqartmalar bilan bo'lishi mumkin: Du/Dush=Dushanba, Se/Sesh=Seshanba, Pn=Dushanba va h.k.). "
+            "Har bir darsni ajrating. Vaqt 8.00, 8:00 yoki 800 kabi yozilishi mumkin - HH:MM ga keltiring. "
+            "Tugash vaqti yozilmagan bo'lsa, boshlanishiga 80 daqiqa qo'shing. "
+            "Fan nomlarini talaba yozganidek qoldiring. Xonani harflari va belgilari bilan aynan ko'chiring "
+            "(masalan 'A-327' bo'lsa 'A-327', '327' emas). Hech narsa to'qimang. Matnda jadval bo'lmasa, [] qaytaring. "
+            + self.JSON_FORMAT
+            + "\n\nMatn:\n"
+            + text[:4000]
+        )
+        return await self._extract({"contents": [{"parts": [{"text": prompt}]}]})
+
+    async def extract_schedule_from_image(self, image_bytes: bytes, filename: str = "schedule.jpg") -> ExtractedScheduleResult:
+        return await self.extract_schedule_from_images([image_bytes], [filename])
+
+    async def extract_schedule_from_images(
+        self, images: List[bytes], filenames: Optional[List[str]] = None
+    ) -> ExtractedScheduleResult:
+        """Bir yoki bir nechta rasm (bitta jadvalning qismlari) - bitta so'rovda birga o'qiladi"""
+        filenames = filenames or ["schedule.jpg"] * len(images)
+        multi = (
+            f"Sizga {len(images)} ta rasm berildi - bu BITTA guruhning bitta jadvalining qismlari (masalan turli kunlar, "
+            "turli haftalar yoki ekranning turli bo'laklari). Hamma rasmlardagi darslarni birlashtirib bitta ro'yxat "
+            "qiling. Bir xil darsni (kun, vaqt, fan bir xil) ikki marta yozmang.\n"
+            if len(images) > 1 else ""
         )
 
+        prompt = multi + (
+            "Bu universitet haftalik dars jadvali rasmi. U har xil ko'rinishda bo'lishi mumkin: HEMIS skrinshoti "
+            "(rangli bloklar), Excel/Word jadvali, qog'ozdagi jadval fotosi, telefon skrinshoti, o'zbek yoki rus tilida. "
+            "Avval jadval tuzilishini aniqlang: kunlar ustunlardami yoki qatorlarda, vaqt qayerda yozilgan.\n"
+            "- Har bir blok yoki katak bitta dars. Bo'sh kataklarni o'tkazib yuboring.\n"
+            "- Vaqt blok ichida yoki chap/yuqoridagi vaqt o'qida bo'ladi. Tugash vaqti yozilmagan bo'lsa, "
+            "blok balandligi va vaqt o'qidan aniqlang. Faqat para raqami (1-para, 2-para) bo'lsa va jadvalda "
+            "paralar vaqti yozilgan bo'lsa - o'shandan oling.\n"
+            "- Bir vaqtda yonma-yon ikkita blok bo'lsa (masalan 'Toq hafta' va 'Juft hafta'), ikkalasini ham yozing.\n"
+            "- Har bir kunning barcha darslarini oxirigacha o'qing, birortasini ham tashlab ketmang.\n"
+            "XONA VA BINO - diqqat bilan:\n"
+            "- Xona ko'pincha qavs ichida yoziladi: '(A-327)', '(3-407)', '(B blok-214)'. Tire oldidagi qism BINO "
+            "(harf, raqam yoki nom), keyingi qism XONA raqami. building ga faqat binoni ('A', '3', 'B blok'), "
+            "room ga faqat xona raqamini ('327') yozing.\n"
+            "- Bino harf/raqam emas, ikonka bilan chizilgan yoki o'qib bo'lmasa, building = null. "
+            "room hech qachon tire bilan boshlanmasin ('-407' emas, '407').\n"
+            "Fan nomi va kodini aynan ko'chiring. O'qituvchi ko'rinsa teacher ga yozing. Dars turi ko'rinsa "
+            "(ma'ruza=LECTURE, amaliy=PRACTICE, laboratoriya=LAB, seminar=SEMINAR), aks holda OTHER. "
+            "GURUH: rasmning sarlavhasida yoki darslarda guruh nomi (masalan '712-24') ko'rinsa, uni har bir "
+            "darsning group maydoniga yozing; ko'rinmasa null.\n"
+            "Faqat rasmda ko'ringan narsani yozing, hech narsa to'qimang. Rasm dars jadvali bo'lmasa, [] qaytaring. "
+            + self.JSON_FORMAT
+        )
+
+        parts: List[Dict[str, Any]] = [{"text": prompt}]
+        for data, name in zip(images, filenames):
+            parts.append({"inline_data": {
+                "mime_type": _detect_image_mime(data, name),
+                "data": base64.b64encode(data).decode("utf-8"),
+            }})
+        return await self._extract({"contents": [{"parts": parts}]})
+
+    async def _extract(self, payload: Dict[str, Any]) -> ExtractedScheduleResult:
         payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt},
-                        {"inline_data": {"mime_type": mime_type, "data": base64_data}},
-                    ]
-                }
-            ],
+            **payload,
             "generationConfig": {
                 "response_mime_type": "application/json",
                 "temperature": 0.1,
@@ -182,8 +277,15 @@ class GeminiAIProvider(BaseAIProvider):
 
         # Xato bo'lsa namuna ma'lumot QAYTARILMAYDI: soxta darslar haqiqiy jadvalga yozilib ketardi
         last_error = "noma'lum xato"
+        deadline = time.monotonic() + self.TOTAL_BUDGET_SECONDS
+        # Gemini band bo'lsa (503/429) keyingi modelga o'tamiz; hammasi band bo'lsa bir oz kutib yana bir aylana
+        attempts = [m for m in self.VISION_MODELS] + [m for m in self.VISION_MODELS[:2]]
         async with httpx.AsyncClient(timeout=self.REQUEST_TIMEOUT_SECONDS) as client:
-            for model in self.VISION_MODELS:
+            for index, model in enumerate(attempts):
+                if time.monotonic() > deadline:
+                    break
+                if index == len(self.VISION_MODELS):
+                    await asyncio.sleep(2)
                 try:
                     res = await client.post(
                         f"{self.base_url}/{model}:generateContent",
@@ -269,6 +371,50 @@ class GroqAIProvider(BaseAIProvider):
         if self.vision_provider:
             return await self.vision_provider.extract_schedule_from_image(image_bytes, filename)
         raise RuntimeError("Rasm o'qish uchun GEMINI_API_KEY kerak: Groq hisobida vision model yo'q")
+
+    async def extract_schedule_from_images(
+        self, images: List[bytes], filenames: Optional[List[str]] = None
+    ) -> ExtractedScheduleResult:
+        if self.vision_provider:
+            return await self.vision_provider.extract_schedule_from_images(images, filenames)
+        raise RuntimeError("Rasm o'qish uchun GEMINI_API_KEY kerak: Groq hisobida vision model yo'q")
+
+    async def extract_schedule_from_text(self, text: str) -> ExtractedScheduleResult:
+        if self.vision_provider:
+            return await self.vision_provider.extract_schedule_from_text(text)
+        raise RuntimeError("Jadval matnini o'qish uchun GEMINI_API_KEY kerak")
+
+    async def judge_name(self, kind: str, value: str) -> Optional[bool]:
+        what = {
+            "university": "oliy ta'lim muassasasi (universitet, institut, akademiya) nomi yoki uning qisqartmasi",
+            "faculty": "universitet fakulteti yoki kafedrasi nomi (masalan Kiberxavfsizlik, Iqtisodiyot, Matematika) yoki uning qisqartmasi",
+        }.get(kind, kind)
+        payload = {
+            "model": self.chat_model,
+            "messages": [
+                {"role": "system", "content": (
+                    "Siz ro'yxatdan o'tish formasini tekshiruvchisiz. Foydalanuvchi yozgan matn haqiqatan "
+                    f"{what} bo'lishi mumkinmi? O'zbek, rus yoki ingliz tilida, imlo xatosi bilan bo'lishi mumkin - "
+                    "bunday holatda ham ha. Haqorat, so'kinish, ovqat nomi, tasodifiy harflar, hazil, "
+                    "odam ismi yoki mavzuga aloqasiz so'z bo'lsa - yo'q. "
+                    'Faqat JSON qaytaring: {"ok": true} yoki {"ok": false}.'
+                )},
+                {"role": "user", "content": value[:120]},
+            ],
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+        }
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                res = await client.post(self.BASE_URL, headers=self._headers(), json=payload)
+            if res.status_code != 200:
+                logger.error(f"Groq judge_name error {res.status_code}")
+                return None
+            content = res.json()["choices"][0]["message"]["content"]
+            return bool(json.loads(content).get("ok"))
+        except Exception as e:
+            logger.error(f"Groq judge_name failed: {type(e).__name__}")
+            return None
 
     async def chat_student_assistant(self, query: str, context: Dict[str, Any]) -> str:
         system_instruction = (
