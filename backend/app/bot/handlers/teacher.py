@@ -184,10 +184,7 @@ async def _notify_admins_about_teacher(message: Message, session: AsyncSession, 
     university = await session.get(University, profile.university_id) if profile.university_id else None
     for admin_id in settings.admin_id_list:
         admin_lang = lang_of(await UserService.get_by_telegram_id(session, admin_id))
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text=t(admin_lang, "btn_teacher_ok"), callback_data=f"tch_ok_{profile.id}"),
-            InlineKeyboardButton(text=t(admin_lang, "btn_teacher_no"), callback_data=f"tch_no_{profile.id}"),
-        ]])
+        kb = _review_kb(admin_lang, profile.id, user.id)
         try:
             await message.bot.send_message(
                 admin_id,
@@ -205,10 +202,19 @@ async def _notify_admins_about_teacher(message: Message, session: AsyncSession, 
             logger.error(f"Failed to send teacher request to admin {admin_id}: {e}")
 
 
-def _review_kb(lang: str, profile_id: int) -> InlineKeyboardMarkup:
+def _review_kb(lang: str, profile_id: int, user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=t(lang, "btn_teacher_ok"), callback_data=f"tch_ok_{profile_id}"),
+            InlineKeyboardButton(text=t(lang, "btn_teacher_no"), callback_data=f"tch_no_{profile_id}"),
+        ],
+        [InlineKeyboardButton(text=t(lang, "btn_block"), callback_data=f"blk_{user_id}")],
+    ])
+
+
+def _block_kb(lang: str, user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=t(lang, "btn_teacher_ok"), callback_data=f"tch_ok_{profile_id}"),
-        InlineKeyboardButton(text=t(lang, "btn_teacher_no"), callback_data=f"tch_no_{profile_id}"),
+        InlineKeyboardButton(text=t(lang, "btn_block"), callback_data=f"blk_{user_id}"),
     ]])
 
 
@@ -243,18 +249,19 @@ async def admin_teachers(message: Message, current_user: User, session: AsyncSes
 
     approved = [(p, u) for p, u in rows if p.status == TeacherStatus.APPROVED]
     if approved:
-        cards = [await _teacher_card(session, p, u, lang) for p, u in approved[:30]]
-        await message.answer(
-            t(lang, "teachers_approved_title") + NL + NL + (NL + NL).join(cards),
-            parse_mode="HTML", disable_web_page_preview=True,
-        )
+        await message.answer(t(lang, "teachers_approved_title"), parse_mode="HTML")
+        for p, u in approved[:30]:
+            await message.answer(
+                await _teacher_card(session, p, u, lang), parse_mode="HTML",
+                reply_markup=_block_kb(lang, u.id), disable_web_page_preview=True,
+            )
 
     pending = [(p, u) for p, u in rows if p.status == TeacherStatus.PENDING]
     if pending:
         await message.answer(t(lang, "teachers_pending_title"), parse_mode="HTML")
         for p, u in pending[:20]:
             await message.answer(
-                await _teacher_card(session, p, u, lang), parse_mode="HTML", reply_markup=_review_kb(lang, p.id),
+                await _teacher_card(session, p, u, lang), parse_mode="HTML", reply_markup=_review_kb(lang, p.id, u.id),
                 disable_web_page_preview=True,
             )
 

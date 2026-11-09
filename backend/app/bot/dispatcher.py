@@ -8,6 +8,7 @@ from app.bot.handlers.teacher import router as teacher_router
 from app.bot.handlers.user_menu import router as user_router
 from app.bot.middlewares.auth import AuthMiddleware
 from app.bot.middlewares.db_session import DbSessionMiddleware
+from app.bot.middlewares.menu_reset import MenuResetMiddleware
 from app.core.logging import logger
 
 
@@ -18,6 +19,7 @@ def setup_dispatcher() -> Dispatcher:
     # Middlewares (tartib muhim: avval db session, keyin auth)
     dp.message.middleware(DbSessionMiddleware())
     dp.message.middleware(AuthMiddleware())
+    dp.message.outer_middleware(MenuResetMiddleware())  # handler tanlanishidan OLDIN ishlashi shart
     dp.callback_query.middleware(DbSessionMiddleware())
     dp.callback_query.middleware(AuthMiddleware())
 

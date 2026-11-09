@@ -60,7 +60,7 @@ async def test_teacher_registration_goes_to_admin_and_approval_unlocks(db_sessio
     assert admin_call.args[0] == 900
     assert 'href="tg://user?id=700"' in admin_call.args[1]  # admin kimligini bilsin
     buttons = [b.callback_data for row in admin_call.kwargs["reply_markup"].inline_keyboard for b in row]
-    assert buttons == [f"tch_ok_{profile.id}", f"tch_no_{profile.id}"]
+    assert buttons == [f"tch_ok_{profile.id}", f"tch_no_{profile.id}", f"blk_{teacher_user.id}"]
 
     # Tasdiqlanmagan o'qituvchi o'qituvchi filtridan o'tmaydi
     assert await teacher_handlers.ApprovedTeacher()(msg, current_user=teacher_user, session=db_session) is False
@@ -241,7 +241,7 @@ async def test_admin_teachers_section_shows_accounts(db_session: AsyncSession):
     await teacher_handlers.admin_teachers(msg, admin, db_session)
     texts = [c.args[0] for c in msg.answer.call_args_list]
     assert "Tasdiqlangan: <b>1</b>" in texts[0] and "Tasdiq kutmoqda: <b>1</b>" in texts[0]
-    approved_text = texts[1]
+    approved_text = texts[2]  # [0] hisob, [1] sarlavha, [2] birinchi o'qituvchi kartasi
     assert "Karimov Anvar Rustamovich" in approved_text
     assert 'href="https://t.me/anvar_k"' in approved_text and "@anvar_k" in approved_text
     assert "Kiberxavfsizlik" in approved_text
@@ -251,7 +251,9 @@ async def test_admin_teachers_section_shows_accounts(db_session: AsyncSession):
     last = msg.answer.call_args_list[-1]
     assert "Aliyev Dilshod" in last.args[0] and 'href="tg://user?id=952"' in last.args[0]
     buttons = [b.callback_data for row in last.kwargs["reply_markup"].inline_keyboard for b in row]
-    assert buttons == [f"tch_ok_{p2.id}", f"tch_no_{p2.id}"]
+    assert buttons == [f"tch_ok_{p2.id}", f"tch_no_{p2.id}", f"blk_{t2.id}"]
+    approved_call = msg.answer.call_args_list[2]
+    assert [b.callback_data for row in approved_call.kwargs["reply_markup"].inline_keyboard for b in row] == [f"blk_{t1.id}"]
 
 
 @pytest.mark.asyncio

@@ -4,12 +4,14 @@ from datetime import datetime
 from typing import Optional
 import pytz
 from aiogram import F, Router
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.bot.album import send_submission_files, unpack_file_ids
+from app.bot.sender import BLOCKED, FAILED, NOT_STARTED, OK, safe_send
 from app.bot.i18n import NL, format_counts, labels, lang_of, t
 from app.bot.keyboards.inline import admin_review_keyboard, announcement_confirm_keyboard
 from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
@@ -474,20 +476,32 @@ async def handle_announcement_send(query: CallbackQuery, current_user: User, ses
         session.add(Announcement(university_id=univ_id, title=text[:100], content=text))
         await session.commit()
 
-    sent = failed = 0
-    for student in await _announcement_recipients(session, target):
-        try:
-            await query.bot.send_message(
-                chat_id=student.telegram_id,
-                text=t(lang_of(student), "announce_header", text=esc(text)),
-                parse_mode="HTML",
-            )
+    sent = 0
+    problems = {BLOCKED: [], NOT_STARTED: [], FAILED: []}
+    recipients = await _announcement_recipients(session, target)
+    for student in recipients:
+        status, note = await safe_send(
+            query.bot, student.telegram_id,
+            t(lang_of(student), "announce_header", text=esc(text)), parse_mode="HTML",
+        )
+        if status == OK:
             sent += 1
-        except Exception as e:
-            failed += 1
-            logger.warning(f"Announcement not delivered to {student.telegram_id}: {e}")
-        await asyncio.sleep(0.05)  # Telegram tezlik chegarasi: sekundiga ~30 xabar
+        else:
+            label = f"@{student.username}" if student.username else esc(student.first_name or str(student.telegram_id))
+            problems[status].append(label)
+            logger.warning(f"Announcement not delivered to {student.telegram_id}: {status} {note}")
+        await asyncio.sleep(0.04)  # Telegram: sekundiga ~30 xabar
 
+    failed = sum(len(v) for v in problems.values())
+    report = t(lang, "announce_done", sent=sent, failed=failed)
+    for status, key in ((BLOCKED, "announce_fail_blocked"), (NOT_STARTED, "announce_fail_not_started"), (FAILED, "announce_fail_other")):
+        if problems[status]:
+            names = ", ".join(problems[status][:8]) + (" ..." if len(problems[status]) > 8 else "")
+            report += NL + t(lang, key, n=len(problems[status]), names=names)
+    if failed:
+        report += NL + NL + t(lang, "announce_fail_note")
+    await query.message.edit_text(report, parse_mode="HTML")
+    return
     await query.message.edit_text(t(lang, "announce_done", sent=sent, failed=failed))
 
 
@@ -508,3 +522,68 @@ async def handle_announcement_text(message: Message, current_user: User, session
         parse_mode="HTML",
         reply_markup=announcement_confirm_keyboard(lang),
     )
+
+
+# --- Bloklash ---
+def _protected(user: User) -> bool:
+    """Adminlarni bloklab bo'lmaydi"""
+    return user.role == UserRole.ADMIN or user.telegram_id in settings.admin_id_list
+
+
+def _who(user: User) -> str:
+    return f"@{esc(user.username)}" if user.username else esc(user.first_name or str(user.telegram_id))
+
+
+@router.message(Command("block"))
+async def handle_block_command(message: Message, current_user: User, session: AsyncSession):
+    lang = lang_of(current_user)
+    if not is_admin_check(current_user):
+        return
+    query = (message.text or "").partition(" ")[2].strip()
+    target = await UserService.find_user(session, query) if query else None
+    if not target:
+        await message.answer(t(lang, "block_usage"), parse_mode="HTML")
+        return
+    if _protected(target):
+        await message.answer(t(lang, "block_admin_refused"))
+        return
+    await UserService.set_blocked(session, target, True)
+    await message.answer(t(lang, "block_done", who=_who(target)), parse_mode="HTML")
+
+
+@router.message(Command("unblock"))
+async def handle_unblock_command(message: Message, current_user: User, session: AsyncSession):
+    lang = lang_of(current_user)
+    if not is_admin_check(current_user):
+        return
+    query = (message.text or "").partition(" ")[2].strip()
+    target = await UserService.find_user(session, query) if query else None
+    if not target:
+        await message.answer(t(lang, "block_usage"), parse_mode="HTML")
+        return
+    await UserService.set_blocked(session, target, False)
+    await message.answer(t(lang, "unblock_done", who=_who(target)), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("blk_"))
+async def handle_block_button(query: CallbackQuery, current_user: User, session: AsyncSession):
+    lang = lang_of(current_user)
+    if not is_admin_check(current_user):
+        await query.answer(t(lang, "no_permission"), show_alert=True)
+        return
+    target = await session.get(User, int(query.data.split("_", 1)[1]))
+    if not target:
+        await query.answer()
+        return
+    if _protected(target):
+        await query.answer(t(lang, "block_admin_refused"), show_alert=True)
+        return
+    await UserService.set_blocked(session, target, True)
+    await query.answer()
+    try:
+        await query.message.edit_text(
+            f"{query.message.html_text}{NL}{NL}<b>{t(lang, 'block_done', who=_who(target))}</b>",
+            parse_mode="HTML", disable_web_page_preview=True,
+        )
+    except Exception:
+        pass
