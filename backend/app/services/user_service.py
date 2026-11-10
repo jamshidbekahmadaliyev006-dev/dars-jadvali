@@ -1,5 +1,5 @@
 from typing import List, Optional
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.logging import logger
@@ -143,3 +143,37 @@ class UserService:
         await session.refresh(user)
         logger.info(f"User {user_id} role updated to {new_role}")
         return user
+
+
+    @staticmethod
+    async def find_user(session: AsyncSession, query: str):
+        """@username, t.me/username havolasi yoki Telegram ID bo'yicha topadi"""
+        text = (query or "").strip()
+        text = text.replace("https://", "").replace("http://", "")
+        if text.lower().startswith("t.me/"):
+            text = text[5:]
+        text = text.strip("/@ ").split("?")[0]
+        if not text:
+            return None
+        if text.isdigit():
+            return await UserService.get_by_telegram_id(session, int(text))
+        stmt = select(User).where(func.lower(User.username) == text.lower())
+        return (await session.execute(stmt)).scalars().first()
+
+    @staticmethod
+    async def set_blocked(session: AsyncSession, user, blocked: bool) -> None:
+        """
+        Bloklash: hisob o'chiriladi (botga javob bermaydi, e'lon va eslatma ketmaydi) va o'qituvchilik
+        huquqi olinadi. Blokdan chiqarilganda hisob qaytadi, lekin o'qituvchilik qayta tasdiq talab qiladi.
+        """
+        from app.models.enums import TeacherStatus
+        from app.models.teacher import TeacherProfile
+
+        user.is_active = not blocked
+        if blocked:
+            profile = (await session.execute(
+                select(TeacherProfile).where(TeacherProfile.user_id == user.id)
+            )).scalars().first()
+            if profile and profile.status != TeacherStatus.REJECTED:
+                profile.status = TeacherStatus.REJECTED
+        await session.commit()

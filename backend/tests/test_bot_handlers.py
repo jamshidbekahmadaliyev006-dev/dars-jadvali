@@ -83,9 +83,12 @@ async def test_start_handler_triggers_registration_when_no_group():
 
     await handle_start(mock_msg, current_user=new_user, state=mock_state)
 
-    # Avval xush kelibsiz, keyin ro'yxatdan o'tish (universitet so'rovi) yuboriladi
-    assert mock_msg.answer.call_count == 2
-    mock_state.set_state.assert_awaited_once()
+    # Faqat bitta qisqa "Tanlang:" xabari va ikkita tugma: Talaba / O'qituvchi
+    assert mock_msg.answer.call_count == 1
+    role_call = mock_msg.answer.call_args_list[0]
+    assert role_call.args[0] == "Tanlang:"
+    buttons = [b.callback_data for row in role_call.kwargs["reply_markup"].inline_keyboard for b in row]
+    assert buttons == ["role_student", "role_teacher"]
 
 
 @pytest.mark.asyncio
@@ -120,7 +123,7 @@ async def test_admin_statistics_permission_granted(db_session: AsyncSession):
     mock_msg.answer.assert_called_once()
     args, _ = mock_msg.answer.call_args
     assert "Statistika" in args[0]
-    assert "Talabalar" in args[0]
+    assert "Universitetlar" in args[0] and "Fanlar" in args[0]
 
 
 @pytest.mark.asyncio
@@ -288,8 +291,39 @@ async def test_choosing_russian_saves_it_and_continues_in_russian(db_session: As
     assert user.language_code == "ru"
     assert user.language_chosen is True
     texts = [call.args[0] for call in query.message.answer.call_args_list]
-    assert "Привет" in texts[0]
-    assert "Ваш университет" in texts[1]
+    # Til tanlangach darhol qisqa "Выберите:" va rol tugmalari (ortiqcha salom matnisiz)
+    assert texts == ["Выберите:"]
+
+
+@pytest.mark.parametrize("typed", ["712-24", "712_24", "712 24", "712/24", " 712-24 guruh", "712.24"])
+def test_group_names_written_differently_are_the_same_group(typed):
+    from app.services.university_service import group_key, pretty_group_name
+
+    assert group_key(typed) == group_key("712-24")
+    assert pretty_group_name(typed) == "712-24"
+
+
+async def test_university_matches_abbreviation_and_typos(db_session: AsyncSession):
+    from app.models.university import University
+    from app.services.university_service import UniversityService
+
+    tatu = University(name="Toshkent Axborot Texnologiyalari Universiteti")
+    db_session.add(tatu)
+    await db_session.commit()
+
+    for typed in ["TATU", "tatu", "Toshkent axborot texnologiyalar univesiteti"]:
+        found = await UniversityService.match_university(db_session, typed)
+        assert found is not None and found.id == tatu.id, typed
+    assert await UniversityService.match_university(db_session, "Samarqand davlat universiteti") is None
+
+
+async def test_registration_asks_only_university_and_group_and_reuses_group(db_session: AsyncSession):
+    from app.services.university_service import UniversityService
+
+    u1, g1 = await UniversityService.register_university_and_group(db_session, "TATU", "712_24")
+    u2, g2 = await UniversityService.register_university_and_group(db_session, "tatu", "712-24")
+    assert (u1.id, g1.id) == (u2.id, g2.id)
+    assert g1.name == "712-24"
 
 
 def test_every_text_exists_in_both_languages():
@@ -305,8 +339,8 @@ def test_every_menu_button_has_a_handler_for_both_languages():
 
     known = set()
     for key in (
-        "btn_today", "btn_tomorrow", "btn_week", "btn_reminder", "btn_send", "btn_profile", "btn_language",
-        "btn_new_shots", "btn_stats", "btn_groups", "btn_users", "btn_announce", "btn_student_view",
+        "btn_today", "btn_tomorrow", "btn_week", "btn_reminder", "btn_send", "btn_profile", "btn_language", "btn_contact",
+        "btn_new_shots", "btn_stats", "btn_groups", "btn_users", "btn_announce", "btn_student_view", "btn_teachers",
     ):
         known |= labels(key)
 
@@ -339,3 +373,196 @@ def test_russian_counts_use_correct_plural():
 
     assert format_counts(6, 15, "ru") == "6 предметов · 15 занятий"
     assert format_counts(1, 2, "ru") == "1 предмет · 2 занятия"
+
+
+def test_schedule_issues_tells_student_what_is_wrong():
+    from app.bot.text_utils import schedule_issues
+
+    lessons = [
+        {"day": "Dushanba", "subject": "Matematika", "start_time": "08:00", "end_time": "09:30", "room": "327", "building": None, "week_parity": "ALL"},
+        {"day": "Dushanba", "subject": "Fizika", "start_time": "09:00", "end_time": "10:20", "room": None, "building": None, "week_parity": "ALL"},
+        {"day": "Payshanbe?", "subject": "Kimyo", "start_time": "11:00", "end_time": "", "room": "A-1", "building": "A", "week_parity": "ALL"},
+    ]
+    text = "\n".join(schedule_issues(lessons, "uz"))
+    assert "bino aniqlanmadi" in text
+    assert "xona ko'rsatilmagan" in text
+    assert "kun aniqlanmadi" in text and "vaqt to'liq emas" in text
+    assert "ustma-ust" in text
+
+
+def test_schedule_issues_groups_many_missing_buildings_into_one_line():
+    from app.bot.text_utils import schedule_issues
+
+    lessons = [
+        {"day": "Dushanba", "subject": f"Fan {i}", "start_time": f"{8 + i * 2:02d}:00", "end_time": f"{9 + i * 2:02d}:00", "room": str(400 + i), "building": None, "week_parity": "ALL"}
+        for i in range(5)
+    ]
+    issues = schedule_issues(lessons, "uz")
+    assert len(issues) == 1 and "5 ta darsda bino aniqlanmadi" in issues[0]
+
+
+async def test_registration_with_faculty_matches_typos_and_keeps_one_group(db_session: AsyncSession):
+    from app.models.university import Faculty
+    from app.services.university_service import UniversityService
+
+    u1, g1 = await UniversityService.register_university_and_group(db_session, "TATU", "712-24", faculty_name="Kiberxavfsizlik")
+    u2, g2 = await UniversityService.register_university_and_group(db_session, "tatu", "712_24", faculty_name="kiberxafvsizlik")
+    assert g1.id == g2.id
+    faculty = await db_session.get(Faculty, g1.faculty_id)
+    assert faculty.name == "Kiberxavfsizlik"
+
+
+async def test_group_without_faculty_moves_to_named_faculty(db_session: AsyncSession):
+    from app.models.university import Faculty
+    from app.services.university_service import GENERAL_FACULTY_NAME, UniversityService
+
+    _, g = await UniversityService.register_university_and_group(db_session, "TATU", "732-24")
+    assert (await db_session.get(Faculty, g.faculty_id)).name == GENERAL_FACULTY_NAME
+    _, g2 = await UniversityService.register_university_and_group(db_session, "TATU", "732 24", faculty_name="Kiberxavfsizlik")
+    assert g2.id == g.id
+    assert (await db_session.get(Faculty, g2.faculty_id)).name == "Kiberxavfsizlik"
+
+
+@pytest.mark.parametrize(
+    "lang, with_year, expected",
+    [
+        ("uz", False, "9-noyabr, Dushanba"),
+        ("uz", True, "9-noyabr 2026, Dushanba"),
+        ("ru", True, "9 ноября 2026, Понедельник"),
+    ],
+)
+def test_format_date(lang, with_year, expected):
+    from datetime import date
+    from app.bot.text_utils import format_date
+
+    assert format_date(date(2026, 11, 9), lang, with_year=with_year) == expected
+
+
+def test_reminder_shows_lesson_date():
+    from datetime import date
+    from types import SimpleNamespace
+    from app.bot.text_utils import format_reminder
+
+    sched = SimpleNamespace(
+        subject=SimpleNamespace(name="Matematika"), start_time="08:00", end_time="09:30", room=None, teacher=None
+    )
+    text = format_reminder(sched, 15, "uz", lesson_date=date(2026, 11, 9))
+    assert "📅 9-noyabr 2026, Dushanba" in text
+    assert "08:00–09:30" in text
+
+
+async def test_russian_university_abbreviation_matches_tatu(db_session: AsyncSession):
+    from app.models.university import University
+    from app.services.university_service import UniversityService
+
+    tatu = University(name="Toshkent Axborot Texnologiyalari Universiteti")
+    db_session.add(tatu)
+    await db_session.commit()
+    for typed in ["ТУИТ", "TUIT", "туит"]:
+        found = await UniversityService.match_university(db_session, typed)
+        assert found is not None and found.id == tatu.id, typed
+
+
+async def test_unknown_message_gets_menu_hint():
+    from app.bot.handlers.user_menu import handle_unknown_message
+
+    user = User(id=5, telegram_id=5005, first_name="T", role=UserRole.USER, group_id=1, language_code="uz")
+    msg = make_mock_message("salom", 5005)
+    await handle_unknown_message(msg, current_user=user, session=AsyncMock(), state=AsyncMock())
+    assert "Tushunmadim" in msg.answer.call_args.args[0]
+
+
+async def test_university_spelling_variants_are_one_university(db_session: AsyncSession):
+    from app.services.university_service import UniversityService
+
+    u1, _ = await UniversityService.register_university_and_group(db_session, "tatu", "712-24", faculty_name="kiberxavfsizlik")
+    assert u1.name == "TATU"
+    for typed in ["Tatu", "TATU", " tatu ", "Toshkent axborot texnologiyalari universiteti", "ТУИТ"]:
+        u, _ = await UniversityService.register_university_and_group(db_session, typed, "712-24")
+        assert u.id == u1.id, typed
+    from app.models.university import Faculty
+    from sqlalchemy import select as sa_select
+    names = (await db_session.execute(sa_select(Faculty.name))).scalars().all()
+    assert "Kiberxavfsizlik" in names
+
+
+@pytest.mark.asyncio
+async def test_schedule_change_waits_for_admin_and_old_schedule_stays(db_session: AsyncSession, monkeypatch):
+    """Mavjud jadvalni O'ZGARTIRISH admin tasdig'ini kutadi: eski jadval o'zgarmaydi, guruhga xabar ketmaydi"""
+    from app.bot.handlers import user_menu
+    from app.models.enums import SubmissionStatus
+    from app.models.schedule import Schedule, ScheduleSubmission
+    from app.models.university import Faculty, Group, Subject, University
+    from sqlalchemy import select as sa_select
+
+    univ = University(name="TATU")
+    db_session.add(univ)
+    await db_session.commit()
+    fac = Faculty(name="KX", university_id=univ.id)
+    db_session.add(fac)
+    await db_session.commit()
+    mine = Group(name="712-24", university_id=univ.id, faculty_id=fac.id)
+    other = Group(name="732-24", university_id=univ.id, faculty_id=fac.id)
+    old_subject = Subject(name="Eski fan", university_id=univ.id)
+    db_session.add_all([mine, other, old_subject])
+    await db_session.commit()
+    author = User(telegram_id=4242, first_name="Muallif", role=UserRole.USER, university_id=univ.id,
+                  faculty_id=fac.id, group_id=mine.id, language_code="uz")
+    mate = User(telegram_id=4243, first_name="Guruhdosh", role=UserRole.USER, group_id=mine.id, language_code="uz")
+    stranger = User(telegram_id=4244, first_name="Boshqa", role=UserRole.USER, group_id=other.id, language_code="uz")
+    db_session.add_all([author, mate, stranger])
+    await db_session.commit()
+    from app.models.enums import DayOfWeek, LessonType
+    db_session.add(Schedule(university_id=univ.id, group_id=mine.id, subject_id=old_subject.id, day_of_week=DayOfWeek.MONDAY,
+                            start_time="08:00", end_time="09:00", lesson_type=LessonType.LECTURE))
+    await db_session.commit()
+
+    class RealAI:
+        async def extract_schedule_from_text(self, text):
+            from app.schemas.ai import ExtractedLessonItem, ExtractedScheduleResult
+            days = ["Dushanba", "Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma"]
+            return ExtractedScheduleResult(lessons=[
+                ExtractedLessonItem(day=d, subject=f"Fan {i}", start_time=f"{8 + i}:00", end_time=f"{9 + i}:00", room="A-1", building="A")
+                for i, d in enumerate(days)])
+
+    monkeypatch.setattr("app.services.ai_service.get_ai_provider", lambda: RealAI())
+    monkeypatch.setattr(user_menu, "get_ai_provider", lambda: RealAI())
+    monkeypatch.setattr(type(user_menu.settings), "admin_id_list", property(lambda self: [1]))
+
+    msg = make_mock_message("Dushanba 08:00 ...", 4242)
+    msg.answer = AsyncMock(return_value=MagicMock(edit_text=AsyncMock()))
+    msg.bot = MagicMock(send_message=AsyncMock(), send_chat_action=AsyncMock(), send_photo=AsyncMock())
+    msg.document = None
+    await user_menu.process_schedule_input(msg, author, db_session, schedule_text=msg.text, change_request=True)
+
+    sub = (await db_session.execute(sa_select(ScheduleSubmission))).scalars().first()
+    assert sub.status == SubmissionStatus.ADMIN_REVIEW                   # admin tasdig'i kutilyapti
+    from app.services.schedule_service import ScheduleService
+    names = {x.subject.name for x in await ScheduleService.get_schedules(db_session, group_id=mine.id)}
+    assert names == {"Eski fan"}                                         # eski jadval o'zgarmadi
+    sent = msg.bot.send_message.await_args_list
+    to_admin = [c for c in sent if c.args and c.args[0] == 1 or c.kwargs.get("chat_id") == 1]
+    assert to_admin and to_admin[0].kwargs.get("reply_markup") is not None   # adminga tasdiqlash tugmalari bilan
+    notified = {c.kwargs.get("chat_id") for c in sent}
+    assert 4243 not in notified and 4244 not in notified                 # guruhga xabar tasdiqdan keyin ketadi
+
+
+
+
+async def test_admin_has_both_roles_student_mode_and_back():
+    from app.bot.handlers.admin_menu import handle_switch_back_to_admin, handle_switch_to_student_view
+    from app.bot.keyboards.reply import get_admin_main_keyboard
+
+    admin_kb = [b.text for row in get_admin_main_keyboard("uz").keyboard for b in row]
+    assert "🎓 Talaba rejimi" in admin_kb
+
+    admin = User(id=9, telegram_id=9009, first_name="A", role=UserRole.ADMIN, language_code="uz")
+    msg = make_mock_message("🎓 Talaba rejimi", 9009)
+    await handle_switch_to_student_view(msg, current_user=admin)
+    student_kb = [b.text for row in msg.answer.call_args.kwargs["reply_markup"].keyboard for b in row]
+    assert "📅 Dars jadvali" in student_kb and "🛠 Admin paneliga qaytish" in student_kb
+
+    msg = make_mock_message("🛠 Admin paneliga qaytish", 9009)
+    await handle_switch_back_to_admin(msg, current_user=admin)
+    back_kb = [b.text for row in msg.answer.call_args.kwargs["reply_markup"].keyboard for b in row]
+    assert "📈 Statistika" in back_kb

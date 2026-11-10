@@ -28,6 +28,9 @@ async def start_scheduler() -> None:
             id="lesson_reminders_job",
             replace_existing=True,
         )
+        # Kuniga bir marta (Toshkent vaqti 03:30) keraksiz ma'lumotlarni tozalash
+        from app.services.maintenance import cleanup_job
+        sched.add_job(cleanup_job, "cron", hour=3, minute=30, id="daily_cleanup_job", replace_existing=True)
         sched.start()
         logger.info(f"APScheduler started with timezone: {settings.TIMEZONE} and 60s reminder interval.")
 

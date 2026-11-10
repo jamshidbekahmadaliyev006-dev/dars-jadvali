@@ -1,19 +1,38 @@
 from datetime import datetime, timedelta
+import asyncio
 import json
-from typing import List
+import re
+import time
+from typing import List, Optional
 import pytz
 from aiogram import F, Router
+
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.handlers.registration import start_registration
-from app.bot.i18n import DAY_LABELS, STATUS_LABELS, format_counts, format_minutes, labels, lang_of, t
-from app.bot.keyboards.inline import admin_review_keyboard, reminder_minutes_keyboard
-from app.bot.states import ReminderStates
+from app.bot.album import collect_album, looks_too_small, pack_file_ids, send_submission_files, small_image_details
+from app.bot.i18n import NL, format_lesson_count, DAY_LABELS, STATUS_LABELS, format_counts, format_minutes, labels, lang_of, t
+from app.bot.keyboards.inline import (
+    admin_review_keyboard,
+    language_keyboard,
+    profile_keyboard,
+    reminder_minutes_keyboard,
+    week_days_keyboard,
+)
+from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
+from app.bot.states import RegistrationStates, ReminderStates
 from app.bot.text_utils import (
+    schedule_issues,
+    show_typing,
     esc,
+    format_date,
+    is_full_week,
+    week_coverage,
     format_day_schedule,
     format_weekly_schedule,
     schedule_summary,
@@ -23,20 +42,29 @@ from app.core.config import settings
 from app.core.logging import logger
 from app.models.enums import DayOfWeek, SubmissionStatus, UserRole
 from app.models.schedule import ScheduleSubmission
+from app.models.university import Faculty
 from app.models.user import User
 from app.schemas.schedule import ReminderSettingUpdate, ScheduleSubmissionCreate, ScheduleSubmissionReview
 from app.services.ai_provider import MockAIProvider, get_ai_provider
 from app.services.ai_service import AIService
 from app.services.schedule_service import (
+    SCHEDULE_VIEW_CACHE,
+    SCHEDULE_VIEW_TTL_SECONDS,
     ScheduleService,
     current_local_date,
+    canonical_subject_names,
     normalize_subject_name,
     week_parity_for,
 )
-from app.services.university_service import UniversityService
+from app.services.university_service import GENERAL_FACULTY_NAME, UniversityService
 from app.services.user_service import UserService
 
 router = Router(name="user_menu")
+
+
+def _is_change_request(data) -> bool:
+    """'Jadval o'zgardi' tugmasidan kelinganmi (state ma'lumotida belgi)"""
+    return isinstance(data, dict) and data.get("change_request") is True
 
 
 def get_today_tomorrow_enums():
@@ -61,7 +89,7 @@ async def handle_today_lessons(message: Message, current_user: User, session: As
         day_of_week=today_enum,
         week_parity=week_parity_for(current_local_date()),
     )
-    title = t(lang, "today_title", day=DAY_LABELS[lang][today_enum])
+    title = t(lang, "today_title", day=format_date(current_local_date(), lang))
     await message.answer(format_day_schedule("📖", title, schedules, lang), parse_mode="HTML")
 
 
@@ -79,7 +107,7 @@ async def handle_tomorrow_lessons(message: Message, current_user: User, session:
         day_of_week=tomorrow_enum,
         week_parity=week_parity_for(current_local_date() + timedelta(days=1)),
     )
-    title = t(lang, "tomorrow_title", day=DAY_LABELS[lang][tomorrow_enum])
+    title = t(lang, "tomorrow_title", day=format_date(current_local_date() + timedelta(days=1), lang))
     await message.answer(format_day_schedule("📆", title, schedules, lang), parse_mode="HTML")
 
 
@@ -95,7 +123,70 @@ async def handle_full_schedule(message: Message, current_user: User, session: As
         await message.answer(t(lang, "no_schedule"))
         return
 
-    await message.answer(format_weekly_schedule(schedules, lang), parse_mode="HTML")
+    await show_typing(message)
+    await message.answer(
+        format_weekly_schedule(schedules, lang),
+        parse_mode="HTML",
+        reply_markup=week_days_keyboard(lang),
+    )
+
+
+@router.callback_query(F.data.startswith("day_"))
+async def handle_day_tab(query: CallbackQuery, current_user: User, session: AsyncSession):
+    """Dars jadvali ostidagi kun tugmalari: xabar o'sha joyida almashadi"""
+    lang = lang_of(current_user)
+    if not current_user.group_id:
+        await query.answer(t(lang, "no_schedule"), show_alert=True)
+        return
+
+    # Avval javob beramiz - Telegram tugmadagi "yuklanmoqda" belgisini darhol olib tashlaydi
+    await query.answer()
+
+    # Hozir ochiq turgan kun yana bosilsa - hech narsa qilmaymiz (keraksiz so'rov yo'q)
+    markup = query.message.reply_markup
+    if markup and any(
+        b.callback_data == query.data and b.text.startswith("•") for row in markup.inline_keyboard for b in row
+    ):
+        return
+
+    choice = query.data.split("_", 1)[1]
+    active = -1 if choice == "all" else int(choice)
+    parity = None
+    target = None
+    if active >= 0:
+        today = current_local_date()
+        target = today + timedelta(days=active - today.weekday())
+        parity = week_parity_for(target)
+
+    cache_key = (current_user.group_id, lang, active, target)
+    cached = SCHEDULE_VIEW_CACHE.get(cache_key)
+    if cached and time.monotonic() - cached[0] < SCHEDULE_VIEW_TTL_SECONDS:
+        text = cached[1]
+    else:
+        if active == -1:
+            schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
+            text = format_weekly_schedule(schedules, lang) if schedules else t(lang, "no_schedule")
+        else:
+            day_enum = list(DayOfWeek)[active]
+            schedules = await ScheduleService.get_schedules(
+                session, group_id=current_user.group_id, day_of_week=day_enum, week_parity=parity,
+            )
+            text = format_day_schedule("📅", format_date(target, lang), schedules, lang)
+        SCHEDULE_VIEW_CACHE[cache_key] = (time.monotonic(), text)
+
+    try:
+        await query.message.edit_text(text, parse_mode="HTML", reply_markup=week_days_keyboard(lang, active))
+    except TelegramBadRequest:
+        pass  # matn o'zgarmagan
+
+
+@router.callback_query(F.data == "sched_change")
+async def handle_schedule_change(query: CallbackQuery, state: FSMContext, current_user: User):
+    """Jadval o'zgardi: yangi rasm yoki matn kutiladi, admin tasdiqlagach guruh jadvali almashadi"""
+    await query.answer()
+    await state.set_state(RegistrationStates.waiting_schedule)
+    await state.update_data(change_request=True)  # o'zgarish faqat admin tasdiqlagach kuchga kiradi
+    await query.message.answer(t(lang_of(current_user), "schedule_change_prompt"), parse_mode="HTML")
 
 
 @router.message(F.text.in_(labels("btn_send")))
@@ -118,12 +209,15 @@ async def _notify_admins(
     subject_count: int = 0,
     lesson_count: int = 0,
     needs_review: bool = False,
+    file_ids: Optional[List[str]] = None,
+    is_document: bool = False,
 ) -> None:
-    """Talaba yuborgan rasmni natijasi bilan adminlarga, har biriga o'z tilida yuboradi"""
+    """Talaba yuborgan BARCHA rasmlarni natijasi bilan adminlarga, har biriga o'z tilida yuboradi"""
+    file_ids = file_ids or ([file_id] if file_id and file_id != "text" else [])
     username = f" (@{esc(student.username)})" if student.username else ""
 
     for admin_id in settings.admin_id_list:
-        if admin_id == student.telegram_id:
+        if admin_id == student.telegram_id and not needs_review:
             continue
         admin_lang = lang_of(await UserService.get_by_telegram_id(session, admin_id))
         lines = [t(admin_lang, "new_schedule", id=submission_id), "", f"👤 {esc(student.first_name)}{username}"]
@@ -131,14 +225,27 @@ async def _notify_admins(
             lines.append(t(admin_lang, result_key))
         if lesson_count:
             lines.append(f"📚 {format_counts(subject_count, lesson_count, admin_lang)}")
+        markup = admin_review_keyboard(submission_id, admin_lang) if needs_review else None
         try:
-            await message.bot.send_photo(
-                chat_id=admin_id,
-                photo=file_id,
-                caption="\n".join(lines),
-                parse_mode="HTML",
-                reply_markup=admin_review_keyboard(submission_id, admin_lang) if needs_review else None,
-            )
+            if len(file_ids) > 1:
+                await send_submission_files(message.bot, admin_id, file_ids, NL.join(lines), is_document or bool(message.document))
+                if markup:  # albom ostiga tugma qo'yib bo'lmaydi - alohida xabar
+                    await message.bot.send_message(
+                        admin_id, t(admin_lang, "review_buttons", id=submission_id, n=len(file_ids)),
+                        parse_mode="HTML", reply_markup=markup,
+                    )
+            elif file_id and file_id != "text" and message.document:
+                await message.bot.send_document(
+                    chat_id=admin_id, document=file_id, caption="\n".join(lines), parse_mode="HTML", reply_markup=markup,
+                )
+            elif file_id and file_id != "text":
+                await message.bot.send_photo(
+                    chat_id=admin_id, photo=file_id, caption="\n".join(lines), parse_mode="HTML", reply_markup=markup,
+                )
+            else:
+                # Jadval matn ko'rinishida yozilgan - rasm o'rniga matnning o'zi
+                lines += ["", f"<pre>{esc((message.text or '')[:3000])}</pre>"]
+                await message.bot.send_message(admin_id, "\n".join(lines), parse_mode="HTML", reply_markup=markup)
         except Exception as e:
             logger.error(f"Failed to forward schedule photo to admin {admin_id}: {e}")
 
@@ -151,28 +258,151 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
         await start_registration(message, state, session, lang)
         return
 
-    file_id = message.photo[-1].file_id  # eng yuqori sifatlisi
+    file_ids = await collect_album(message, message.photo[-1].file_id)
+    if file_ids is None:
+        return  # albomning keyingi rasmi - birinchisi bilan birga o'qiladi
+    change_request = _is_change_request(await state.get_data())
+    await state.clear()
+    await process_schedule_input(
+        message, current_user, session, file_ids=file_ids, change_request=change_request
+    )
 
+
+# Rasm fayl qilib yuborilsa Telegram uni siqmaydi - mayda yozuvlar (bino, xona) aniqroq o'qiladi
+@router.message(F.document.mime_type.startswith("image/"))
+async def handle_schedule_document_upload(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
+    lang = lang_of(current_user)
+    if not current_user.university_id or not current_user.group_id:
+        await start_registration(message, state, session, lang)
+        return
+    if (message.document.file_size or 0) > 15 * 1024 * 1024:
+        await message.answer(t(lang, "file_too_big"))
+        return
+
+    file_ids = await collect_album(message, message.document.file_id)
+    if file_ids is None:
+        return
+    change_request = _is_change_request(await state.get_data())
+    await state.clear()
+    await process_schedule_input(
+        message, current_user, session, file_ids=file_ids, is_document=True, change_request=change_request,
+    )
+
+
+async def _group_mismatch(session: AsyncSession, user: User, lessons: List[dict]) -> Optional[str]:
+    """Darslarda ko'rsatilgan guruhlar bor-u, talabaning guruhi ular orasida yo'q bo'lsa - o'sha nom"""
+    from app.services.university_service import UniversityService, group_key
+
+    seen = {str(item.get("group")).strip() for item in lessons if item.get("group")}
+    if not seen or not user.group_id:
+        return None
+    group = await UniversityService.get_group_by_id(session, user.group_id)
+    if not group:
+        return None
+    own = group_key(group.name)
+    for value in seen:
+        # "712-24, 732-24" kabi birgalikdagi yozuvlar
+        if own in {group_key(part) for part in re.split(r"[,;]+", value) if part.strip()}:
+            return None
+    return ", ".join(sorted(seen))[:60]
+
+
+async def _lookalike_group(session: AsyncSession, user: User, lessons: List[dict]) -> Optional[str]:
+    """
+    Yangi jadval BOSHQA guruhning mavjud jadvaliga deyarli aynan o'xshasa (90%+), o'sha guruh nomi.
+    Odatda bu talaba adashib do'stining/boshqa guruhning rasmini yuborganini bildiradi.
+    """
+    from app.models.schedule import Schedule
+    from app.models.university import Group
+    from app.services.schedule_service import normalize_subject_name, resolve_day_of_week
+    from sqlalchemy import select as sa_select
+
+    def signature(rows):
+        sig = set()
+        for item in rows:
+            day = resolve_day_of_week(item.get("day"))
+            subject = normalize_subject_name(item.get("subject") or "")[0].lower()
+            if day and subject and item.get("start_time"):
+                sig.add((day.value, item["start_time"], subject))
+        return sig
+
+    new_sig = signature(lessons)
+    if len(new_sig) < 3:
+        return None
+    others = (await session.execute(
+        sa_select(Schedule).options(selectinload(Schedule.subject))
+        .where(Schedule.is_active == True, Schedule.group_id != user.group_id)
+    )).scalars().all()
+    by_group: dict = {}
+    for row in others:
+        if row.subject:
+            by_group.setdefault(row.group_id, set()).add((row.day_of_week.value, row.start_time, row.subject.name.lower()))
+    for group_id, sig in by_group.items():
+        union = new_sig | sig
+        if union and len(new_sig & sig) / len(union) >= 0.9:
+            group = await session.get(Group, group_id)
+            return group.name if group else "?"
+    return None
+
+
+async def _notify_group_replaced(bot, session: AsyncSession, author: User) -> None:
+    """Jadval yangilangani haqida FAQAT shu guruhning boshqa a'zolariga xabar"""
+    from app.bot.sender import safe_send
+    from app.models.university import Group
+
+    group = await session.get(Group, author.group_id)
+    members = (await session.execute(
+        select(User).where(User.group_id == author.group_id, User.is_active == True, User.id != author.id)
+    )).scalars().all()
+    for member in members:
+        await safe_send(
+            bot, member.telegram_id,
+            t(lang_of(member), "group_schedule_replaced", group=esc(group.name if group else "")),
+            parse_mode="HTML",
+        )
+        await asyncio.sleep(0.05)
+
+
+async def process_schedule_input(
+    message: Message,
+    current_user: User,
+    session: AsyncSession,
+    file_id: Optional[str] = None,
+    schedule_text: Optional[str] = None,
+    is_document: bool = False,
+    change_request: bool = False,
+    file_ids: Optional[List[str]] = None,
+) -> None:
+    """Jadval rasmlari (bir yoki bir nechta) yoki qo'lda yozilgan jadval matnini AI orqali o'qib saqlaydi"""
+    lang = lang_of(current_user)
+    file_ids = file_ids or ([file_id] if file_id else [])
+    file_id = file_ids[0] if file_ids else None
     payload = ScheduleSubmissionCreate(
         university_id=current_user.university_id,
         faculty_id=current_user.faculty_id,
         group_id=current_user.group_id,
-        image_file_id=file_id,
-        image_url=f"tg://file/{file_id}",
+        image_file_id=file_id or "text",
+        image_url=pack_file_ids(file_ids) if file_ids else f"text:{(schedule_text or '')[:480]}",
     )
     submission = await ScheduleService.create_submission(session, current_user.id, payload)
 
     loading_msg = await message.answer(t(lang, "reading"))
+    await show_typing(message)
 
     try:
-        file_info = await message.bot.get_file(file_id)
-        file_io = await message.bot.download_file(file_info.file_path)
+        images: List[bytes] = []
+        for fid in file_ids:
+            file_info = await message.bot.get_file(fid)
+            images.append((await message.bot.download_file(file_info.file_path)).read())
+        image_bytes = images[0] if images else b""
 
         processed = await AIService.process_schedule_submission(
             session=session,
             submission_id=submission.id,
-            image_bytes=file_io.read(),
+            image_bytes=image_bytes,
             filename=f"tg_{file_id}.jpg",
+            text=schedule_text,
+            images=images,
         )
 
         lessons: List[dict] = []
@@ -184,33 +414,117 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
 
         if processed.status != SubmissionStatus.ADMIN_REVIEW or not lessons:
             await loading_msg.edit_text(t(lang, "read_failed"), parse_mode="HTML")
-            await _notify_admins(message, session, current_user, submission.id, file_id, "admin_read_failed")
+            await _notify_admins(
+                message, session, current_user, submission.id, file_id, "admin_read_failed",
+                file_ids=file_ids, is_document=is_document,
+            )
             return
 
-        subject_count = len({normalize_subject_name(item.get("subject") or "")[0].lower() for item in lessons})
+        # Rasm juda mayda: bir kunga juda kam piksel to'g'ri keladi (matn 9-10 px) - xona va vaqt ishonchsiz
+        # o'qiladi. Bunday jadval saqlanmaydi, tiniq rasm so'raladi (Telegram rasmni siqadi: fayl qilib yuborish yordam beradi).
+        details = small_image_details(images[0], lessons) if (file_id and len(images) == 1) else None
+        if details:
+            processed.status = SubmissionStatus.NEEDS_CORRECTION
+            processed.image_file_id = "-"
+            processed.image_url = None
+            await session.commit()
+            await loading_msg.edit_text(
+                t(lang, "schedule_unclear") + NL + NL + t(lang, "unclear_facts", w=details["w"], h=details["h"],
+                                                           days=details["days"], pd=details["pd"], min=details["min"]),
+                parse_mode="HTML",
+            )
+            return
 
-        # Avtomatik tasdiqlash faqat guruhning birinchi jadvali yoki admin uchun: aks holda
-        # istalgan a'zo rasm yuborib, butun guruh jadvalini tekshiruvsiz almashtirib qo'yardi.
+        # Faqat bitta kun yoki bir-ikki dars (kesilgan rasm) butun guruh jadvali deb SAQLANMAYDI
+        if not is_full_week(lessons):
+            days, count = week_coverage(lessons)
+            processed.status = SubmissionStatus.NEEDS_CORRECTION
+            processed.image_file_id = "-"
+            processed.image_url = None
+            await session.commit()
+            await loading_msg.edit_text(
+                t(lang, "schedule_partial",
+                  days=", ".join(DAY_LABELS[lang][d] for d in days) or "—", lessons=format_lesson_count(count, lang)),
+                parse_mode="HTML",
+            )
+            return
+
+        canonical = canonical_subject_names(lessons)
+        subject_count = len({
+            code or name.lower()
+            for name, code in (normalize_subject_name(item.get("subject") or "") for item in lessons)
+        })
+
+        # Talabaga faqat BITTA xabar ("Jadval saqlandi"). Qo'shimcha xabar faqat haqiqiy muammo bo'lsa:
+        #  - ba'zi darslar o'qilmadi (kun yoki vaqt aniqlanmadi) yoki
+        #  - natija juda yomon (darslarning yarmidan ko'pida xona yo'q) - tiniqroq rasm so'raladi
+        from app.services.schedule_service import resolve_day_of_week
+
+        dropped = sum(
+            1 for item in lessons
+            if not resolve_day_of_week(item.get("day")) or not item.get("start_time") or not item.get("end_time")
+        )
+        no_room = sum(1 for item in lessons if not item.get("room"))
+        tiny_image = bool(images) and looks_too_small(images)
+
+        async def reject(key: str, **kwargs) -> None:
+            """Qaror botda: jadval SAQLANMAYDI, adminni kutmaymiz - odamga nima qilish kerakligi aytiladi"""
+            processed.status = SubmissionStatus.NEEDS_CORRECTION
+            processed.image_file_id = "-"
+            processed.image_url = None
+            await session.commit()
+            await loading_msg.edit_text(t(lang, key, **kwargs), parse_mode="HTML")
+
+        # O'qib bo'lmadi: ko'p dars noaniq (kun/vaqt) yoki kichik rasmda xonalarning ko'pi yo'q - tiniq rasm so'raladi
+        unreadable = len(lessons) >= 4 and (
+            dropped * 4 >= len(lessons) or (tiny_image and no_room * 10 >= len(lessons) * 6)
+        )
+        if unreadable:
+            await reject("schedule_unclear")
+            return
+
+        # Rasmda boshqa guruh nomi yoki boshqa guruhning aynan o'sha jadvali: saqlanmaydi, to'g'ri jadval so'raladi
+        group_mismatch = await _group_mismatch(session, current_user, lessons)
+        if group_mismatch:
+            await reject("group_mismatch", seen=esc(group_mismatch))
+            return
+        lookalike = await _lookalike_group(session, current_user, lessons)
+        if lookalike:
+            await reject("schedule_lookalike", group=esc(lookalike))
+            return
+
+        if dropped:
+            await message.answer(t(lang, "lessons_skipped", n=dropped), parse_mode="HTML")
+
         existing_schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
         is_admin = current_user.role == UserRole.ADMIN
         # Namuna (mock) provayder natijasi hech qachon haqiqiy jadvalga yozilmaydi
         is_real_ai = not isinstance(get_ai_provider(), MockAIProvider)
-        can_auto_approve = is_real_ai and (is_admin or not existing_schedules)
 
-        if not can_auto_approve:
+        # QOIDA:
+        #  - guruhning BIRINCHI jadvali (ro'yxatdan o'tishda): AI o'zi hal qiladi - aniq bo'lsa saqlanadi
+        #    (yuqorida aniq bo'lmasa rad etilgan);
+        #  - mavjud jadvalni O'ZGARTIRISH ("Jadval o'zgardi" yoki guruhda jadval bor): faqat ADMIN tasdiqlaydi.
+        is_change = bool(existing_schedules) or change_request
+        if not is_real_ai or (is_change and not is_admin):
             summary = format_counts(subject_count, len(lessons), lang)
             await loading_msg.edit_text(t(lang, "sent_to_review", summary=summary), parse_mode="HTML")
             await _notify_admins(
                 message, session, current_user, submission.id, file_id,
                 subject_count=subject_count, lesson_count=len(lessons), needs_review=True,
+                file_ids=file_ids, is_document=is_document,
             )
             return
 
         review = ScheduleSubmissionReview(
             status=SubmissionStatus.APPROVED,
-            admin_notes="Avtomatik tasdiqlandi (guruh uchun birinchi jadval / admin)",
+            admin_notes="Avtomatik tasdiqlandi (guruhning birinchi jadvali / admin)",
         )
         await ScheduleService.review_submission(session, submission.id, current_user.id, review)
+
+        # Guruhning eski jadvali almashtirilgan bo'lsa - guruhdoshlarga xabar (faqat shu guruhga)
+        if existing_schedules:
+            await _notify_group_replaced(message.bot, session, current_user)
 
         schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
         setting = await ScheduleService.get_or_create_reminder_setting(session, current_user.id)
@@ -229,9 +543,10 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
         await _notify_admins(
             message, session, current_user, submission.id, file_id, "admin_saved",
             subject_count=subject_count, lesson_count=len(lessons),
+            file_ids=file_ids, is_document=is_document,
         )
     except Exception as e:
-        logger.error(f"Error processing bot photo submission: {e}")
+        logger.error(f"Error processing schedule submission: {e}")
         await loading_msg.edit_text(t(lang, "upload_error"), parse_mode="HTML")
 
 
@@ -272,13 +587,37 @@ async def handle_reminder_settings_prompt(message: Message, current_user: User, 
     setting = await ScheduleService.get_or_create_reminder_setting(session, current_user.id)
     await state.set_state(ReminderStates.waiting_minutes)
     await message.answer(
-        t(lang, "reminder_prompt", time=format_minutes(setting.minutes_before, lang)),
+        _reminder_prompt_text(lang, setting),
         parse_mode="HTML",
-        reply_markup=reminder_minutes_keyboard(lang),
+        reply_markup=reminder_minutes_keyboard(lang, setting.is_enabled),
     )
 
 
-@router.callback_query(F.data.startswith("remind_"))
+def _reminder_prompt_text(lang: str, setting) -> str:
+    if not setting.is_enabled:
+        return t(lang, "reminder_prompt_off")
+    return t(lang, "reminder_prompt", time=format_minutes(setting.minutes_before, lang))
+
+
+@router.callback_query(F.data.in_({"remind_off", "remind_on"}))
+async def handle_reminder_toggle(query: CallbackQuery, state: FSMContext, current_user: User, session: AsyncSession):
+    """Eslatmani o'chirish / qayta yoqish: vaqt sozlamasi saqlanib qoladi"""
+    lang = lang_of(current_user)
+    enable = query.data == "remind_on"
+    setting = await ScheduleService.get_or_create_reminder_setting(session, current_user.id)
+    await ScheduleService.update_reminder_setting(
+        session, current_user.id, ReminderSettingUpdate(is_enabled=enable, minutes_before=setting.minutes_before)
+    )
+    await state.clear()
+    text = (
+        t(lang, "reminder_saved", time=format_minutes(setting.minutes_before, lang)) if enable
+        else t(lang, "reminder_turned_off")
+    )
+    await query.message.edit_text(text, parse_mode="HTML")
+    await query.answer()
+
+
+@router.callback_query(F.data.regexp(r"^remind_\d+$"))
 async def handle_reminder_minutes_button(query: CallbackQuery, state: FSMContext, current_user: User, session: AsyncSession):
     minutes = int(query.data.split("_")[-1])
     await state.clear()
@@ -301,13 +640,17 @@ async def handle_reminder_minutes_input(message: Message, state: FSMContext, cur
 @router.message(F.text.in_(labels("btn_profile")))
 async def handle_profile(message: Message, current_user: User, session: AsyncSession):
     lang = lang_of(current_user)
+    await show_typing(message)
     lines = [f"👤 <b>{esc(current_user.first_name)}</b>\n"]
 
     if current_user.group_id:
         group = await UniversityService.get_group_by_id(session, current_user.group_id)
         university = await UniversityService.get_university_by_id(session, current_user.university_id)
+        faculty = await session.get(Faculty, current_user.faculty_id) if current_user.faculty_id else None
         if university:
-            lines.append(f"🏛 {esc(university.name)}")
+            lines.append(t(lang, "profile_university", name=esc(university.name)))
+        if faculty and faculty.name != GENERAL_FACULTY_NAME:
+            lines.append(t(lang, "profile_faculty", name=esc(faculty.name)))
         if group:
             lines.append(t(lang, "profile_group", group=esc(group.name)))
         schedules = await ScheduleService.get_schedules(session, group_id=current_user.group_id)
@@ -316,12 +659,41 @@ async def handle_profile(message: Message, current_user: User, session: AsyncSes
         lines.append(t(lang, "profile_no_group"))
 
     setting = await ScheduleService.get_or_create_reminder_setting(session, current_user.id)
-    lines.append(t(lang, "profile_reminder", time=format_minutes(setting.minutes_before, lang)))
-    lines.append(t(lang, "profile_change"))
+    lines.append(
+        t(lang, "profile_reminder", time=format_minutes(setting.minutes_before, lang)) if setting.is_enabled
+        else t(lang, "profile_reminder_off")
+    )
+    lines.append(t(lang, "profile_lang"))
 
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=profile_keyboard(lang))
+
+
+@router.callback_query(F.data == "profile_group")
+async def handle_profile_change_group(query: CallbackQuery, state: FSMContext, current_user: User, session: AsyncSession):
+    await query.answer()
+    await start_registration(query.message, state, session, lang_of(current_user))
+
+
+@router.callback_query(F.data == "profile_lang")
+async def handle_profile_change_language(query: CallbackQuery, current_user: User):
+    await query.answer()
+    await query.message.answer(t(lang_of(current_user), "choose_language"), reply_markup=language_keyboard())
 
 
 @router.message(Command("register"))
 async def handle_register_command(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
     await start_registration(message, state, session, lang_of(current_user))
+
+
+# --- Hech bir bo'lim tushunmagan xabar: javobsiz qoldirmaymiz ---
+@router.message()
+async def handle_unknown_message(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
+    lang = lang_of(current_user)
+    if not current_user.group_id:
+        from app.services.teacher_service import TeacherService
+        if not await TeacherService.get_profile(session, current_user.id):
+            from app.bot.handlers.teacher import role_keyboard
+            await message.answer(t(lang, "choose_role"), parse_mode="HTML", reply_markup=role_keyboard(lang))
+            return
+    kb = get_admin_main_keyboard(lang) if current_user.role == UserRole.ADMIN else get_user_main_keyboard(lang)
+    await message.answer(t(lang, "fallback_hint"), reply_markup=kb)

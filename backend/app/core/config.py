@@ -39,10 +39,6 @@ class Settings(BaseSettings):
     # AI Provider Settings
     AI_PROVIDER: str = Field(default="mock", description="AI Provider: mock, gemini, groq")
     GEMINI_API_KEY: Optional[str] = Field(default=None, description="Google Gemini API Key")
-    GEMINI_VISION_MODEL: str = Field(
-        default="gemini-3.5-flash",
-        description="Jadval rasmini o'qish uchun birinchi sinaladigan model; ishlamasa yengil modellarga o'tiladi",
-    )
     GROQ_API_KEY: Optional[str] = Field(default=None, description="Groq (OpenAI-compatible) API Key")
     GROQ_MODEL: str = Field(default="openai/gpt-oss-120b", description="Groq matnli chat uchun model nomi")
 
