@@ -9,7 +9,7 @@ from app.bot.i18n import (
     format_minutes,
     t,
 )
-from app.models.enums import DayOfWeek
+from app.models.enums import DayOfWeek, WeekParity
 from app.services.schedule_service import current_local_date, week_parity_for
 
 
@@ -56,15 +56,21 @@ def format_day_schedule(icon: str, title: str, schedules: Sequence[Any], lang: s
 
 
 def format_weekly_schedule(schedules: Sequence[Any], lang: str = DEFAULT_LANG) -> str:
-    """Guruhning barcha darslarini kunlar bo'yicha guruhlab, HTML matn qiladi"""
+    """
+    Joriy hafta darslarini kunlar bo'yicha guruhlab, HTML matn qiladi. Toq haftada faqat
+    toq hafta (va har hafta) darslari ko'rsatiladi, juft haftada faqat juft hafta darslari,
+    shuning uchun bir vaqtdagi ikki variant aralashib ketmaydi.
+    """
+    current_parity = week_parity_for(current_local_date())
+    this_week = [s for s in schedules if s.week_parity in (WeekParity.ALL, current_parity)]
+
     by_day: Dict[DayOfWeek, List[Any]] = {}
-    for s in schedules:
+    for s in this_week:
         by_day.setdefault(s.day_of_week, []).append(s)
 
-    current_parity = week_parity_for(current_local_date())
     lines = [
         t(lang, "week_title"),
-        schedule_summary(schedules, lang),
+        schedule_summary(this_week, lang),
         t(lang, "week_now", parity=PARITY_LABELS[lang][current_parity]),
     ]
     for day in DayOfWeek:
@@ -73,7 +79,7 @@ def format_weekly_schedule(schedules: Sequence[Any], lang: str = DEFAULT_LANG) -
             continue
         day_schedules.sort(key=lambda s: s.start_time)
         lines.append(f"\n<b>{DAY_LABELS[lang][day]}</b>")
-        lines.extend(_lesson_line(s, lang, show_parity=True) for s in day_schedules)
+        lines.extend(_lesson_line(s, lang) for s in day_schedules)
     return "\n".join(lines)
 
 
