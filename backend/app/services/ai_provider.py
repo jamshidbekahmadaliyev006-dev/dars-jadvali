@@ -160,7 +160,7 @@ class GeminiAIProvider(BaseAIProvider):
     # paytda 503 qaytarib, 40 soniyadan ko'proq ushlab turadi. Birinchisi ishlamasa ikkinchisi.
     VISION_MODELS = ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
     CHAT_MODEL = "gemini-3.5-flash-lite"
-    REQUEST_TIMEOUT_SECONDS = 30.0
+    REQUEST_TIMEOUT_SECONDS = 45.0
 
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -208,7 +208,9 @@ class GeminiAIProvider(BaseAIProvider):
         # Xato bo'lsa namuna ma'lumot QAYTARILMAYDI: soxta darslar haqiqiy jadvalga yozilib ketardi
         last_error = "noma'lum xato"
         async with httpx.AsyncClient(timeout=self.REQUEST_TIMEOUT_SECONDS) as client:
-            for model in self.VISION_MODELS:
+            # Aniqroq model birinchi; yengil modellar faqat u xato yoki band bo'lganda
+            models = [settings.GEMINI_VISION_MODEL, *self.VISION_MODELS]
+            for model in dict.fromkeys(m for m in models if m):
                 try:
                     res = await client.post(
                         f"{self.base_url}/{model}:generateContent",
