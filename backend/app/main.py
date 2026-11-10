@@ -1,6 +1,8 @@
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.api_router import api_router
 from app.bot.bot_instance import get_bot, reset_menu_button
@@ -81,6 +83,19 @@ def create_app() -> FastAPI:
 
     # API routerlarni ulash
     app.include_router(api_router, prefix=settings.API_V1_STR)
+
+    # Admin sayt: bitta HTML sahifa. Ma'lumot faqat /api/v1/admin orqali, Telegram imzosi bilan keladi,
+    # shuning uchun sahifaning o'zi hech narsa sir saqlamaydi.
+    admin_page = Path(__file__).resolve().parent / "admin_web" / "index.html"
+
+    @app.get("/admin", include_in_schema=False)
+    @app.get("/admin/", include_in_schema=False)
+    async def admin_site():
+        # X-Frame-Options qo'yilmaydi: Telegram Web/Desktop Mini App'ni iframe ichida ochadi
+        return FileResponse(admin_page, media_type="text/html", headers={
+            "Cache-Control": "no-store",
+            "Referrer-Policy": "no-referrer",
+        })
 
     @app.get("/", tags=["Root"])
     async def root():

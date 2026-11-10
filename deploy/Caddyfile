@@ -1,0 +1,22 @@
+# Admin sayt: https://149-118-57-149.sslip.io/admin
+# sslip.io nomi serverning IP manziliga o'zi ishora qiladi, domen sotib olish shart emas.
+# Faqat admin sayt sahifasi va uning API'si o'tkaziladi; qolgan hamma narsa 404.
+149-118-57-149.sslip.io {
+	encode gzip
+
+	@admin path /admin /admin/ /api/v1/admin/*
+	handle @admin {
+		reverse_proxy bot:8000
+	}
+
+	handle {
+		respond "Not found" 404
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+}

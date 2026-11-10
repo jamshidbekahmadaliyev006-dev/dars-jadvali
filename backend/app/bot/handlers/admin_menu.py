@@ -6,7 +6,7 @@ import pytz
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message, WebAppInfo
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -380,6 +380,23 @@ async def handle_admin_groups(message: Message, current_user: User, session: Asy
     for index, page in enumerate(pages):
         footer = (NL + NL + t(lang, "groups_legend")) if index == len(pages) - 1 else ""
         await message.answer((page + footer)[:4000], parse_mode="HTML")
+
+
+@router.message(F.text.in_(labels("btn_admin_site")))
+async def handle_admin_site(message: Message, current_user: User):
+    """Admin saytni ochadigan tugma. Sayt Telegram imzosi bilan ochiladi va faqat ADMIN_IDS'ga javob beradi."""
+    lang = lang_of(current_user)
+    if not is_admin_check(current_user) or not settings.is_admin(current_user.telegram_id):
+        await message.answer(t(lang, "admin_only"))
+        return
+    url = (settings.ADMIN_WEB_URL or "").strip()
+    if not url.startswith("https://"):
+        await message.answer(t(lang, "admin_site_off"))
+        return
+    markup = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=t(lang, "admin_site_button"), web_app=WebAppInfo(url=url))
+    ]])
+    await message.answer(t(lang, "admin_site_open"), parse_mode="HTML", reply_markup=markup)
 
 
 @router.message(F.text.in_(labels("btn_users")))

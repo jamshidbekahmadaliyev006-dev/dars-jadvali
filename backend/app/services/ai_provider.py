@@ -332,7 +332,7 @@ class GeminiAIProvider(BaseAIProvider):
 
         system_instruction = (
             "Sen talabalarga dars jadvali, vazifalar va o'qish rejalari bo'yicha yordam beruvchi "
-            "samimiy va aqlli 'UniNotify AI Yordamchisi'san. "
+            "samimiy va aqlli 'Qulay Jadval AI yordamchisi'san. "
             "Faqat berilgan talaba ma'lumotlari (context) ga tayangan holda o'zbek tilida aniq, "
             "londa va rag'batlantiruvchi tarzda javob ber. O'zingdan yolg'on dars yoki xona to'qima."
         )
@@ -476,7 +476,7 @@ class GroqAIProvider(BaseAIProvider):
     async def chat_student_assistant(self, query: str, context: Dict[str, Any]) -> str:
         system_instruction = (
             "Sen talabalarga dars jadvali, vazifalar va o'qish rejalari bo'yicha yordam beruvchi "
-            "samimiy va aqlli 'UniNotify AI Yordamchisi'san. "
+            "samimiy va aqlli 'Qulay Jadval AI yordamchisi'san. "
             "Faqat berilgan talaba ma'lumotlari (context) ga tayangan holda o'zbek tilida aniq, "
             "lo'nda va rag'batlantiruvchi tarzda javob ber. O'zingdan yolg'on dars yoki xona to'qima."
         )

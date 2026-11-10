@@ -85,6 +85,16 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "btn_stats": {"uz": "📈 Statistika", "ru": "📈 Статистика"},
     "btn_groups": {"uz": "👥 Guruhlar", "ru": "👥 Группы"},
     "btn_users": {"uz": "👤 Foydalanuvchilar", "ru": "👤 Пользователи"},
+    "btn_admin_site": {"uz": "🖥 Admin sayt", "ru": "🖥 Админ-сайт"},
+    "admin_site_open": {
+        "uz": "🖥 <b>Admin sayt</b>\n\nPastdagi tugmani bosing. Sayt faqat sizga ochiladi: boshqa hech kim kira olmaydi.",
+        "ru": "🖥 <b>Админ-сайт</b>\n\nНажмите кнопку ниже. Сайт открывается только вам: больше никто войти не сможет.",
+    },
+    "admin_site_button": {"uz": "Saytni ochish", "ru": "Открыть сайт"},
+    "admin_site_off": {
+        "uz": "Admin sayt hali sozlanmagan (ADMIN_WEB_URL bo‘sh).",
+        "ru": "Админ-сайт ещё не настроен (ADMIN_WEB_URL пуст).",
+    },
     "btn_announce": {"uz": "📢 E'lon yuborish", "ru": "📢 Отправить объявление"},
     "btn_student_view": {"uz": "🎓 Talaba rejimi", "ru": "🎓 Режим студента"},
     "btn_admin_back": {"uz": "🛠 Admin paneliga qaytish", "ru": "🛠 Вернуться в админ-панель"},

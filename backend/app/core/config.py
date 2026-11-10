@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "UniNotify"
+    PROJECT_NAME: str = "Qulay Jadval"
     DEBUG: bool = True
     API_V1_STR: str = "/api/v1"
 
@@ -19,6 +19,8 @@ class Settings(BaseSettings):
 
     # Mini App
     MINI_APP_URL: str = "https://uninotify.app"
+    # Admin sayt manzili (botdagi "Admin sayt" tugmasi shu yerni ochadi). Bo'sh bo'lsa tugma ishlamaydi.
+    ADMIN_WEB_URL: str = ""
 
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./uninotify.db"
