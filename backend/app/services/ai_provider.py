@@ -128,6 +128,28 @@ class MockAIProvider(BaseAIProvider):
         )
 
 
+def unify_subject_names_by_code(items: List[Any]) -> None:
+    """
+    Bir xil fan kodli (masalan ISE001 va ISE001-1) bloklarning nomi turlicha o'qilgan bo'lsa,
+    eng ko'p uchragan nomni hammasiga beradi: bitta fan ikkita turli fanga bo'linib ketmasin.
+    """
+    from collections import Counter
+    from app.services.schedule_service import normalize_subject_name
+
+    by_code: Dict[str, Counter] = {}
+    for item in items:
+        name, code = normalize_subject_name(item.subject or "")
+        if code and name:
+            by_code.setdefault(code, Counter())[name] += 1
+
+    for item in items:
+        name, code = normalize_subject_name(item.subject or "")
+        if code and code in by_code:
+            best = by_code[code].most_common(1)[0][0]
+            if best != name:
+                item.subject = f"{best}-{code}"
+
+
 class GeminiAIProvider(BaseAIProvider):
     """
     Google Gemini Multimodal Vision & Text AI provayderi.
@@ -156,7 +178,10 @@ class GeminiAIProvider(BaseAIProvider):
             "Bu universitet haftalik dars jadvali rasmi. Har bir rangli blok yoki jadval katagi bitta dars. "
             "Ustun yoki qator sarlavhasi kun, blokdagi vaqt boshlanish vaqti. Tugash vaqti yozilmagan bo'lsa, "
             "blok balandligi va vaqt o'qidan aniqlang. Bir vaqtda ikkita dars bo'lsa, ikkalasini ham yozing. "
-            "Fan nomi va xonani rasmda qanday yozilgan bo'lsa, aynan shunday ko'chiring. "
+            "Fan nomi va xonani rasmda qanday yozilgan bo'lsa, aynan shunday ko'chiring, harfma-harf. "
+            "Fan nomidan keyingi kod (masalan ABC001) nomning bir qismi sifatida qoladi: kodni hech qachon "
+            "ochib, tarjima qilib yoki boshqa fan nomi bilan almashtirib yozmang, kod ma'nosini taxmin qilmang. "
+            "Bir xil kodli bloklar bir xil fan nomiga ega. "
             "Faqat rasmda ko'ringan narsani yozing, hech narsa to'qimang. Rasm dars jadvali bo'lmasa, [] qaytaring. "
             "Faqat JSON massiv qaytaring, har bir element kalitlari: "
             "day (Dushanba, Seshanba, Chorshanba, Payshanba, Juma, Shanba, Yakshanba), subject, "
@@ -176,7 +201,7 @@ class GeminiAIProvider(BaseAIProvider):
             ],
             "generationConfig": {
                 "response_mime_type": "application/json",
-                "temperature": 0.1,
+                "temperature": 0,
             },
         }
 
@@ -201,6 +226,7 @@ class GeminiAIProvider(BaseAIProvider):
                     items = [ExtractedLessonItem(**item) for item in raw_items]
                     if not items:
                         raise ValueError("Rasmdan birorta ham dars aniqlanmadi")
+                    unify_subject_names_by_code(items)
                     return ExtractedScheduleResult(
                         lessons=items,
                         confidence=0.9,
