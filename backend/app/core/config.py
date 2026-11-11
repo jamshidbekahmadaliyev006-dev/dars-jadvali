@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # Mini App
     MINI_APP_URL: str = "https://uninotify.app"
-    # Admin sayt manzili (botdagi "Admin sayt" tugmasi shu yerni ochadi). Bo'sh bo'lsa tugma ishlamaydi.
+    # Admin sayt manzili (botdagi "Admin sayt" tugmasi bir martalik havola bilan shu yerni ochadi). Bo'sh bo'lsa tugma ishlamaydi.
     ADMIN_WEB_URL: str = ""
 
     # Database

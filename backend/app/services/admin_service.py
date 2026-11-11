@@ -1,7 +1,10 @@
 """
-Admin sayt uchun ma'lumotlar. Hammasi bot ishlatadigan o'sha jadvallardan (users, groups, schedules,
-schedule_submissions ...) to'g'ridan-to'g'ri hisoblanadi: sayt va bot doim bir xil narsani ko'radi.
-Har bir ko'rsatkich tanlangan universitet bo'yicha.
+Admin sayt uchun ma'lumotlar.
+
+Hamma raqam botning "Statistika" va "Foydalanuvchilar" oynalaridagi bilan BIR XIL qoidalar bo'yicha
+hisoblanadi (app/bot/handlers/admin_menu.py: collect_statistics, collect_user_counts), shuning uchun
+sayt va bot doim bir xil son ko'rsatadi; testlar buni tekshiradi. `uni=0` - barcha universitetlar
+(botdagi umumiy raqamlar), `uni>0` - faqat shu universitet.
 """
 import asyncio
 import json
@@ -10,14 +13,15 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import pytz
-from sqlalchemy import and_, exists, func, or_, select, String, cast
+from sqlalchemy import String, and_, cast, exists, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.logging import logger
-from app.models.enums import SubmissionStatus, UserRole
+from app.models.enums import SubmissionStatus, TeacherStatus, UserRole
 from app.models.log import Announcement
 from app.models.schedule import Schedule, ScheduleSubmission
+from app.models.teacher import TeacherLesson, TeacherProfile
 from app.models.university import Faculty, Group, Subject, University
 from app.models.user import User
 from app.services.schedule_service import (
@@ -25,11 +29,12 @@ from app.services.schedule_service import (
     ScheduleService,
     clean_room_text,
     current_local_date,
+    normalize_subject_name,
     week_parity_for,
 )
+from app.services.university_service import GENERAL_FACULTY_NAME, name_key
 
-STAGES = ("done", "nosch", "nogr")
-LESSON_KEYS = ("day", "start_time", "end_time", "subject", "room", "teacher", "week_parity", "lesson_type")
+STAGES = ("done", "nosch", "nogr", "teacher", "pending", "students")
 OPEN_STATUSES = (SubmissionStatus.ADMIN_REVIEW, SubmissionStatus.NEEDS_CORRECTION, SubmissionStatus.AI_COMPLETED)
 
 
@@ -51,102 +56,172 @@ def _fmt(dt: Optional[datetime], pattern: str = "%d.%m.%Y %H:%M") -> str:
     return dt.astimezone(pytz.timezone(settings.TIMEZONE)).strftime(pattern)
 
 
+# ---------------- umumiy shartlar ----------------
+def _scope(uni: int):
+    """Foydalanuvchi shu universitetniki: o'zi tanlagan yoki o'qituvchi profili shu yerda"""
+    if not uni:
+        return true()
+    return or_(
+        User.university_id == uni,
+        exists().where(TeacherProfile.user_id == User.id, TeacherProfile.university_id == uni),
+    )
+
+
+def _approved_ids():
+    return select(TeacherProfile.user_id).where(TeacherProfile.status == TeacherStatus.APPROVED)
+
+
+def _pending_ids():
+    return select(TeacherProfile.user_id).where(TeacherProfile.status == TeacherStatus.PENDING)
+
+
+def _is_student():
+    """Botdagi qoida: guruhi bor va o'qituvchi (tasdiqlangan ham, kutayotgan ham) emas"""
+    return and_(User.group_id.is_not(None), User.id.not_in(_approved_ids()), User.id.not_in(_pending_ids()))
+
+
 def _has_schedule():
     return exists().where(Schedule.group_id == User.group_id, Schedule.is_active == True)
 
 
-def _students(uni_id: int):
-    return and_(User.university_id == uni_id, User.role == UserRole.USER)
+def _stage(user: User, has_schedule: bool, is_teacher: bool, is_pending: bool) -> str:
+    if is_teacher:
+        return "teacher"
+    if is_pending:
+        return "pending"
+    if not user.group_id:
+        return "nogr"
+    return "done" if has_schedule else "nosch"
 
 
-# ---------------- universitetlar va bosh sahifa ----------------
+# ---------------- universitetlar ----------------
+async def user_counts(session: AsyncSession, uni: int = 0) -> Dict[str, int]:
+    """Botning 'Foydalanuvchilar' oynasidagi 4 ta son (har bir foydalanuvchi bitta toifada)"""
+    scope = _scope(uni)
+    q = lambda *where: session.scalar(select(func.count(User.id)).where(scope, *where))
+    total = await q() or 0
+    teachers = await q(User.id.in_(_approved_ids())) or 0
+    pending = await q(User.id.in_(_pending_ids()), User.id.not_in(_approved_ids())) or 0
+    students = await q(_is_student()) or 0
+    return {"total": total, "teachers": teachers, "pending": pending, "students": students,
+            "unregistered": total - teachers - pending - students}
+
+
+async def statistics(session: AsyncSession, uni: int = 0) -> Dict[str, int]:
+    """Botning 'Statistika' oynasidagi sonlar (fanlar: guruhlardagi darslar emas, takrorlanmas fanlar)"""
+    fac = select(func.count(Faculty.id)).where(Faculty.name != GENERAL_FACULTY_NAME)
+    grp = select(func.count(Group.id))
+    pairs = select(Subject.name, Subject.code).join(Schedule, Schedule.subject_id == Subject.id).where(Schedule.is_active == True)
+    t_lessons = select(TeacherLesson.subject).where(TeacherLesson.is_active == True)
+    lessons = select(func.count(Schedule.id)).where(Schedule.is_active == True)
+    if uni:
+        fac = fac.where(Faculty.university_id == uni)
+        grp = grp.where(Group.university_id == uni)
+        pairs = pairs.where(Schedule.university_id == uni)
+        lessons = lessons.where(Schedule.university_id == uni)
+        t_lessons = t_lessons.join(TeacherProfile, TeacherProfile.id == TeacherLesson.teacher_id).where(
+            TeacherProfile.university_id == uni)
+
+    keys = {("c:" + code) if code else ("n:" + name_key(normalize_subject_name(name)[0]))
+            for name, code in (await session.execute(pairs)).all() if name}
+    for subject in (await session.execute(t_lessons)).scalars().all():
+        clean, code = normalize_subject_name(subject or "")
+        if clean:
+            keys.add(("c:" + code) if code else ("n:" + name_key(clean)))
+    return {
+        "universities": 1 if uni else (await session.scalar(select(func.count(University.id))) or 0),
+        "faculties": await session.scalar(fac) or 0,
+        "groups": await session.scalar(grp) or 0,
+        "subjects": len(keys),
+        "lessons": await session.scalar(lessons) or 0,
+    }
+
+
 async def list_universities(session: AsyncSession) -> List[Dict[str, Any]]:
-    users = dict((await session.execute(
-        select(User.university_id, func.count(User.id)).where(User.role == UserRole.USER).group_by(User.university_id)
-    )).all())
     rows = (await session.execute(select(University).order_by(University.id))).scalars().all()
-    items = [{"id": u.id, "name": u.name, "short": short_name(u), "users": users.get(u.id, 0)} for u in rows]
+    items = []
+    for u in rows:
+        items.append({"id": u.id, "name": u.name, "short": short_name(u), "users": (await user_counts(session, u.id))["total"]})
     items.sort(key=lambda x: (-x["users"], x["id"]))
     return items
 
 
-async def overview(session: AsyncSession, uni_id: int) -> Dict[str, Any]:
-    q = lambda stmt: session.scalar(stmt)
-    users = await q(select(func.count(User.id)).where(_students(uni_id))) or 0
-    with_sch = await q(select(func.count(User.id)).where(_students(uni_id), User.group_id.is_not(None), _has_schedule())) or 0
-    no_group = await q(select(func.count(User.id)).where(_students(uni_id), User.group_id.is_(None))) or 0
-    groups = await q(select(func.count(Group.id)).where(Group.university_id == uni_id)) or 0
-    lessons = await q(select(func.count(Schedule.id)).where(Schedule.university_id == uni_id, Schedule.is_active == True)) or 0
-    subjects = await q(select(func.count(func.distinct(Schedule.subject_id))).where(
-        Schedule.university_id == uni_id, Schedule.is_active == True)) or 0
+async def overview(session: AsyncSession, uni: int = 0) -> Dict[str, Any]:
+    scope = _scope(uni)
+    subs = ScheduleSubmission.university_id == uni if uni else true()
+    sched = Schedule.university_id == uni if uni else true()
 
     req_status = {s.value if hasattr(s, "value") else s: n for s, n in (await session.execute(
-        select(ScheduleSubmission.status, func.count(ScheduleSubmission.id))
-        .where(ScheduleSubmission.university_id == uni_id).group_by(ScheduleSubmission.status)
+        select(ScheduleSubmission.status, func.count(ScheduleSubmission.id)).where(subs).group_by(ScheduleSubmission.status)
     )).all()}
     lang = dict((await session.execute(
-        select(User.language_code, func.count(User.id)).where(_students(uni_id)).group_by(User.language_code)
+        select(User.language_code, func.count(User.id)).where(scope).group_by(User.language_code)
     )).all())
     top = [[name, n] for name, n in (await session.execute(
         select(Subject.name, func.count(Schedule.id).label("n"))
-        .join(Subject, Subject.id == Schedule.subject_id)
-        .where(Schedule.university_id == uni_id, Schedule.is_active == True)
-        .group_by(Subject.id).order_by(func.count(Schedule.id).desc()).limit(5)
+        .join(Subject, Subject.id == Schedule.subject_id).where(sched, Schedule.is_active == True)
+        .group_by(Subject.id).order_by(func.count(Schedule.id).desc(), Subject.name).limit(5)
     )).all()]
     users_day = [[str(d), n] for d, n in (await session.execute(
-        select(func.date(User.created_at), func.count(User.id)).where(_students(uni_id)).group_by(func.date(User.created_at))
+        select(func.date(User.created_at), func.count(User.id)).where(scope).group_by(func.date(User.created_at))
     )).all() if d]
     req_day = [[str(d), n] for d, n in (await session.execute(
         select(func.date(ScheduleSubmission.created_at), func.count(ScheduleSubmission.id))
-        .where(ScheduleSubmission.university_id == uni_id).group_by(func.date(ScheduleSubmission.created_at))
+        .where(subs).group_by(func.date(ScheduleSubmission.created_at))
     )).all() if d]
-
     return {
-        "users": users, "with_sch": with_sch, "no_group": no_group, "no_sch": users - with_sch - no_group,
-        "groups": groups, "lessons": lessons, "subjects": subjects,
+        **await user_counts(session, uni), **await statistics(session, uni),
         "req_status": req_status, "lang": {k or "uz": v for k, v in lang.items()},
         "top": top, "users_day": sorted(users_day), "req_day": sorted(req_day),
     }
 
 
 # ---------------- foydalanuvchilar ----------------
-def _stage(group_id: Optional[int], has_schedule: bool) -> str:
-    if not group_id:
-        return "nogr"
-    return "done" if has_schedule else "nosch"
-
-
-def _user_row(user: User, group_name: Optional[str], faculty_name: Optional[str], has_schedule: bool) -> Dict[str, Any]:
+def _user_row(user: User, group_name: Optional[str], faculty_name: Optional[str], univ: Optional[University],
+              has_schedule: bool, is_teacher: bool, is_pending: bool) -> Dict[str, Any]:
     return {
         "id": user.id,
         "telegram_id": user.telegram_id,
         "name": " ".join(x for x in (user.first_name, user.last_name) if x) or str(user.telegram_id),
         "username": user.username or "",
         "lang": user.language_code or "uz",
+        "univ": short_name(univ) if univ else "",
         "faculty": faculty_name or "",
         "group": group_name or "",
-        "stage": _stage(user.group_id, has_schedule),
+        "stage": _stage(user, has_schedule, is_teacher, is_pending),
         "created": _fmt(user.created_at, "%d.%m.%Y"),
         "active": bool(user.is_active),
+        "is_admin": user.role == UserRole.ADMIN or settings.is_admin(user.telegram_id),
     }
 
 
-async def list_users(
-    session: AsyncSession, uni_id: int, q: str = "", stage: str = "", lang: str = "", page: int = 1, size: int = 20
-) -> Dict[str, Any]:
-    has = _has_schedule().label("has_schedule")
-    stmt = (
-        select(User, Group.name, Faculty.name, has)
+def _user_select():
+    teacher = User.id.in_(_approved_ids()).label("is_teacher")
+    pending = and_(User.id.in_(_pending_ids()), User.id.not_in(_approved_ids())).label("is_pending")
+    return (
+        select(User, Group.name, Faculty.name, University, _has_schedule().label("has_schedule"), teacher, pending)
         .outerjoin(Group, Group.id == User.group_id)
         .outerjoin(Faculty, Faculty.id == User.faculty_id)
-        .where(_students(uni_id))
+        .outerjoin(University, University.id == User.university_id)
     )
-    if stage == "done":
-        stmt = stmt.where(User.group_id.is_not(None), _has_schedule())
+
+
+async def list_users(
+    session: AsyncSession, uni: int = 0, q: str = "", stage: str = "", lang: str = "", page: int = 1, size: int = 20
+) -> Dict[str, Any]:
+    stmt = _user_select().where(_scope(uni))
+    if stage == "teacher":
+        stmt = stmt.where(User.id.in_(_approved_ids()))
+    elif stage == "pending":
+        stmt = stmt.where(User.id.in_(_pending_ids()), User.id.not_in(_approved_ids()))
+    elif stage == "students":
+        stmt = stmt.where(_is_student())
+    elif stage == "done":
+        stmt = stmt.where(_is_student(), _has_schedule())
     elif stage == "nosch":
-        stmt = stmt.where(User.group_id.is_not(None), ~_has_schedule())
+        stmt = stmt.where(_is_student(), ~_has_schedule())
     elif stage == "nogr":
-        stmt = stmt.where(User.group_id.is_(None))
+        stmt = stmt.where(User.group_id.is_(None), User.id.not_in(_approved_ids()), User.id.not_in(_pending_ids()))
     if lang:
         stmt = stmt.where(User.language_code == lang)
     text = (q or "").strip().lstrip("@")
@@ -161,43 +236,39 @@ async def list_users(
     size = max(1, min(size, 100))
     page = max(1, page)
     rows = (await session.execute(stmt.order_by(User.created_at.desc(), User.id.desc()).offset((page - 1) * size).limit(size))).all()
-    return {"total": total, "page": page, "size": size, "items": [_user_row(u, g, f, bool(h)) for u, g, f, h in rows]}
+    return {"total": total, "page": page, "size": size,
+            "items": [_user_row(u, g, f, un, bool(h), bool(t), bool(p)) for u, g, f, un, h, t, p in rows]}
 
 
 async def user_detail(session: AsyncSession, user_id: int) -> Optional[Dict[str, Any]]:
-    has = _has_schedule().label("has_schedule")
-    row = (await session.execute(
-        select(User, Group.name, Faculty.name, has, University.name)
-        .outerjoin(Group, Group.id == User.group_id)
-        .outerjoin(Faculty, Faculty.id == User.faculty_id)
-        .outerjoin(University, University.id == User.university_id)
-        .where(User.id == user_id)
-    )).first()
+    row = (await session.execute(_user_select().where(User.id == user_id))).first()
     if not row:
         return None
-    user, group_name, faculty_name, has_schedule, univ_name = row
-    data = _user_row(user, group_name, faculty_name, bool(has_schedule))
-    data["university"] = univ_name or ""
+    user, group_name, faculty_name, univ, has_schedule, is_teacher, is_pending = row
+    data = _user_row(user, group_name, faculty_name, univ, bool(has_schedule), bool(is_teacher), bool(is_pending))
+    data["university"] = univ.name if univ else ""
     data["requests"] = await session.scalar(
         select(func.count(ScheduleSubmission.id)).where(ScheduleSubmission.user_id == user.id)) or 0
-    data["is_admin"] = user.role == UserRole.ADMIN or settings.is_admin(user.telegram_id)
     return data
 
 
 # ---------------- guruhlar ----------------
-async def list_groups(session: AsyncSession, uni_id: int) -> List[Dict[str, Any]]:
+async def list_groups(session: AsyncSession, uni: int = 0) -> List[Dict[str, Any]]:
     users_n = select(func.count(User.id)).where(User.group_id == Group.id, User.role == UserRole.USER).scalar_subquery()
     subj_n = select(func.count(func.distinct(Schedule.subject_id))).where(
         Schedule.group_id == Group.id, Schedule.is_active == True).scalar_subquery()
     lessons_n = select(func.count(Schedule.id)).where(Schedule.group_id == Group.id, Schedule.is_active == True).scalar_subquery()
-    rows = (await session.execute(
-        select(Group.id, Group.name, Faculty.name, users_n, subj_n, lessons_n)
+    stmt = (
+        select(Group.id, Group.name, Faculty.name, University, users_n, subj_n, lessons_n)
         .join(Faculty, Faculty.id == Group.faculty_id)
-        .where(Group.university_id == uni_id)
-        .order_by(Faculty.name, Group.name)
-    )).all()
-    return [{"id": gid, "name": name, "faculty": fac, "users": u or 0, "subjects": s or 0, "lessons": l or 0}
-            for gid, name, fac, u, s, l in rows]
+        .join(University, University.id == Group.university_id)
+        .order_by(University.id, Faculty.name, Group.name)
+    )
+    if uni:
+        stmt = stmt.where(Group.university_id == uni)
+    rows = (await session.execute(stmt)).all()
+    return [{"id": gid, "name": name, "faculty": fac, "univ": short_name(univ), "users": u or 0, "subjects": s or 0, "lessons": l or 0}
+            for gid, name, fac, univ, u, s, l in rows]
 
 
 async def group_members(session: AsyncSession, group_id: int) -> List[User]:
@@ -234,37 +305,36 @@ def _lessons_of(sub: ScheduleSubmission) -> List[Dict[str, Any]]:
     return [_lesson_out(i) for i in raw if isinstance(i, dict)]
 
 
-async def list_submissions(session: AsyncSession, uni_id: int, limit: int = 50) -> List[Dict[str, Any]]:
-    rows = (await session.execute(
-        select(ScheduleSubmission, Group.name, User.first_name, User.username)
+def _sub_select():
+    return (
+        select(ScheduleSubmission, Group.name, User.first_name, User.username, University)
         .outerjoin(Group, Group.id == ScheduleSubmission.group_id)
         .outerjoin(User, User.id == ScheduleSubmission.user_id)
-        .where(ScheduleSubmission.university_id == uni_id)
-        .order_by(ScheduleSubmission.id.desc()).limit(limit)
-    )).all()
-    out = []
-    for sub, gname, first, uname in rows:
-        out.append({
-            "id": sub.id, "status": sub.status.value, "created": _fmt(sub.created_at, "%d.%m %H:%M"),
-            "group": gname or "", "user": first or "", "username": uname or "",
-            "lessons": len(_lessons_of(sub)), "open": sub.status in OPEN_STATUSES,
-        })
-    return out
+        .outerjoin(University, University.id == ScheduleSubmission.university_id)
+    )
+
+
+async def list_submissions(session: AsyncSession, uni: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+    stmt = _sub_select()
+    if uni:
+        stmt = stmt.where(ScheduleSubmission.university_id == uni)
+    rows = (await session.execute(stmt.order_by(ScheduleSubmission.id.desc()).limit(limit))).all()
+    return [{
+        "id": sub.id, "status": sub.status.value, "created": _fmt(sub.created_at, "%d.%m %H:%M"),
+        "group": gname or "", "univ": short_name(univ) if univ else "", "user": first or "", "username": uname or "",
+        "lessons": len(_lessons_of(sub)), "open": sub.status in OPEN_STATUSES,
+    } for sub, gname, first, uname, univ in rows]
 
 
 async def submission_detail(session: AsyncSession, sub_id: int) -> Optional[Dict[str, Any]]:
-    row = (await session.execute(
-        select(ScheduleSubmission, Group.name, User.first_name, User.username)
-        .outerjoin(Group, Group.id == ScheduleSubmission.group_id)
-        .outerjoin(User, User.id == ScheduleSubmission.user_id)
-        .where(ScheduleSubmission.id == sub_id)
-    )).first()
+    row = (await session.execute(_sub_select().where(ScheduleSubmission.id == sub_id))).first()
     if not row:
         return None
-    sub, gname, first, uname = row
+    sub, gname, first, uname, univ = row
     return {
         "id": sub.id, "status": sub.status.value, "created": _fmt(sub.created_at, "%d.%m.%Y %H:%M"),
-        "group": gname or "", "group_id": sub.group_id, "user": first or "", "username": uname or "",
+        "group": gname or "", "group_id": sub.group_id, "univ": short_name(univ) if univ else "",
+        "user": first or "", "username": uname or "",
         "university_id": sub.university_id, "open": sub.status in OPEN_STATUSES,
         "lessons": _lessons_of(sub), "notes": sub.admin_notes or "",
     }
@@ -303,7 +373,7 @@ def _lesson_in(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 async def save_submission_lessons(session: AsyncSession, sub_id: int, lessons: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Admin tuzatgan darslarni saqlaydi. So'rov allaqachon tasdiqlangan bo'lsa, guruh jadvali ham shu
-    zahoti qayta yoziladi - guruhdagi har bir talaba botda yangi jadvalni ko'radi.
+    zahoti qayta yoziladi: guruhdagi har bir talaba botda yangi jadvalni ko'radi.
     """
     sub = await session.get(ScheduleSubmission, sub_id)
     if not sub:
@@ -321,35 +391,38 @@ async def save_submission_lessons(session: AsyncSession, sub_id: int, lessons: L
 
 
 # ---------------- xabarlar ----------------
-def audience_filter(uni_id: int, audience: str):
-    base = and_(_students(uni_id), User.is_active == True)
+AUDIENCES = ("all", "nosch", "done", "nogr", "teachers", "ru", "en")
+
+
+def audience_filter(uni: int, audience: str):
+    base = and_(_scope(uni), User.role == UserRole.USER, User.is_active == True)
+    student = and_(base, _is_student())
     if audience == "nosch":
-        return and_(base, User.group_id.is_not(None), ~_has_schedule())
+        return and_(student, ~_has_schedule())
     if audience == "done":
-        return and_(base, User.group_id.is_not(None), _has_schedule())
+        return and_(student, _has_schedule())
     if audience == "nogr":
-        return and_(base, User.group_id.is_(None))
+        return and_(base, User.group_id.is_(None), User.id.not_in(_approved_ids()), User.id.not_in(_pending_ids()))
+    if audience == "teachers":
+        return and_(base, User.id.in_(_approved_ids()))
     if audience in ("ru", "en", "uz"):
         return and_(base, User.language_code == audience)
     return base
 
 
-AUDIENCES = ("all", "nosch", "done", "nogr", "ru", "en")
+async def audience_counts(session: AsyncSession, uni: int = 0) -> Dict[str, int]:
+    return {a: await session.scalar(select(func.count(User.id)).where(audience_filter(uni, a))) or 0 for a in AUDIENCES}
 
 
-async def audience_counts(session: AsyncSession, uni_id: int) -> Dict[str, int]:
-    return {a: await session.scalar(select(func.count(User.id)).where(audience_filter(uni_id, a))) or 0 for a in AUDIENCES}
-
-
-async def audience_users(session: AsyncSession, uni_id: int, audience: str) -> List[User]:
-    return list((await session.execute(select(User).where(audience_filter(uni_id, audience)))).scalars().all())
+async def audience_users(session: AsyncSession, uni: int, audience: str) -> List[User]:
+    return list((await session.execute(select(User).where(audience_filter(uni, audience)))).scalars().all())
 
 
 # Yuborish jarayonlari: e'lon ID -> holat. Server qayta ishga tushsa sanoq yo'qoladi, e'lon matni bazada qoladi.
 BROADCASTS: Dict[int, Dict[str, Any]] = {}
 
 
-async def run_broadcast(bot, announcement_id: int, recipients: List[tuple], text: str) -> None:
+async def run_broadcast(bot, announcement_id: int, recipients: List[int], text: str) -> None:
     from app.bot.sender import BLOCKED, NOT_STARTED, OK, safe_send
 
     job = BROADCASTS[announcement_id]
@@ -367,22 +440,26 @@ async def run_broadcast(bot, announcement_id: int, recipients: List[tuple], text
     job["finished_at"] = time.time()
 
 
-async def start_broadcast(session: AsyncSession, bot, uni_id: int, audience: str, text: str) -> Dict[str, Any]:
-    users = await audience_users(session, uni_id, audience)
-    ann = Announcement(university_id=uni_id, title=text[:100], content=text)
+async def start_broadcast(session: AsyncSession, bot, uni: int, audience: str, text: str) -> Dict[str, Any]:
+    users = await audience_users(session, uni, audience)
+    univ_id = uni or await session.scalar(select(University.id).order_by(University.id).limit(1))
+    if not univ_id:
+        raise ValueError("Universitet yo'q")
+    ann = Announcement(university_id=univ_id, title=text[:100], content=text)
     session.add(ann)
     await session.commit()
     await session.refresh(ann)
     BROADCASTS[ann.id] = {"id": ann.id, "audience": audience, "total": len(users), "sent": 0, "blocked": 0,
-                          "failed": 0, "done": False, "uni": uni_id}
+                          "failed": 0, "done": False, "uni": uni}
     asyncio.create_task(run_broadcast(bot, ann.id, [u.telegram_id for u in users], text))
     return BROADCASTS[ann.id]
 
 
-async def broadcast_history(session: AsyncSession, uni_id: int, limit: int = 30) -> List[Dict[str, Any]]:
-    rows = (await session.execute(
-        select(Announcement).where(Announcement.university_id == uni_id).order_by(Announcement.id.desc()).limit(limit)
-    )).scalars().all()
+async def broadcast_history(session: AsyncSession, uni: int = 0, limit: int = 30) -> List[Dict[str, Any]]:
+    stmt = select(Announcement)
+    if uni:
+        stmt = stmt.where(Announcement.university_id == uni)
+    rows = (await session.execute(stmt.order_by(Announcement.id.desc()).limit(limit))).scalars().all()
     out = []
     for a in rows:
         job = BROADCASTS.get(a.id)

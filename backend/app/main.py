@@ -84,17 +84,23 @@ def create_app() -> FastAPI:
     # API routerlarni ulash
     app.include_router(api_router, prefix=settings.API_V1_STR)
 
-    # Admin sayt: bitta HTML sahifa. Ma'lumot faqat /api/v1/admin orqali, Telegram imzosi bilan keladi,
+    # Admin sayt: bitta HTML sahifa. Ma'lumot faqat /api/v1/admin orqali, sessiya tokeni bilan keladi,
     # shuning uchun sahifaning o'zi hech narsa sir saqlamaydi.
     admin_page = Path(__file__).resolve().parent / "admin_web" / "index.html"
 
     @app.get("/admin", include_in_schema=False)
     @app.get("/admin/", include_in_schema=False)
     async def admin_site():
-        # X-Frame-Options qo'yilmaydi: Telegram Web/Desktop Mini App'ni iframe ichida ochadi
         return FileResponse(admin_page, media_type="text/html", headers={
             "Cache-Control": "no-store",
             "Referrer-Policy": "no-referrer",
+            "X-Frame-Options": "DENY",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": (
+                "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
+                "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+            ),
         })
 
     @app.get("/", tags=["Root"])

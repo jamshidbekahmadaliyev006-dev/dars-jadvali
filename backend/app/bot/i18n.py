@@ -87,8 +87,8 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "btn_users": {"uz": "👤 Foydalanuvchilar", "ru": "👤 Пользователи"},
     "btn_admin_site": {"uz": "🖥 Admin sayt", "ru": "🖥 Админ-сайт"},
     "admin_site_open": {
-        "uz": "🖥 <b>Admin sayt</b>\n\nPastdagi tugmani bosing. Sayt faqat sizga ochiladi: boshqa hech kim kira olmaydi.",
-        "ru": "🖥 <b>Админ-сайт</b>\n\nНажмите кнопку ниже. Сайт открывается только вам: больше никто войти не сможет.",
+        "uz": "🖥 <b>Admin sayt</b>\n\nPastdagi tugmani bosing: sayt brauzerda ochiladi.\n\n🔒 Havola faqat sizga, <b>5 daqiqa</b> amal qiladi va <b>bir marta</b> ishlaydi. Boshqa hech kim kira olmaydi. Keyingi safar tugmani qaytadan bosing.",
+        "ru": "🖥 <b>Админ-сайт</b>\n\nНажмите кнопку ниже: сайт откроется в браузере.\n\n🔒 Ссылка только для вас, действует <b>5 минут</b> и сработает <b>один раз</b>. Больше никто войти не сможет. В следующий раз нажмите кнопку снова.",
     },
     "admin_site_button": {"uz": "Saytni ochish", "ru": "Открыть сайт"},
     "admin_site_off": {
@@ -457,6 +457,11 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "student_rejected": {
         "uz": "❌ <b>Jadvalingiz rad etildi</b>\n\nAniqroq rasm yuborib ko'ring.",
         "ru": "❌ <b>Ваше расписание отклонено</b>\n\nПопробуйте отправить более чёткое фото.",
+    },
+    # Admin (sayt orqali) xatoni yozib rad etganda: talaba nima noto'g'ri ekanini va nima qilishini biladi
+    "student_rejected_reason": {
+        "uz": "❌ <b>Jadvalingiz rad etildi</b>\n\n<b>Xato:</b> {reason}\n\nIltimos, shuni tuzatib, jadvalni qaytadan yuboring 🙏",
+        "ru": "❌ <b>Ваше расписание отклонено</b>\n\n<b>Ошибка:</b> {reason}\n\nПожалуйста, исправьте это и отправьте расписание ещё раз 🙏",
     },
     "groups_empty": {"uz": "👥 Hali guruh yo'q.", "ru": "👥 Групп пока нет."},
     "groups_summary": {

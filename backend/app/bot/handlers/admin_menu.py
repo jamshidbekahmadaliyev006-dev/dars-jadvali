@@ -6,7 +6,7 @@ import pytz
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message, WebAppInfo
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -17,6 +17,7 @@ from app.bot.keyboards.inline import admin_review_keyboard, announcement_confirm
 from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
 from app.bot.states import AnnouncementStates
 from app.bot.text_utils import esc
+from app.core.admin_session import create_login_token
 from app.core.config import settings
 from app.core.logging import logger
 from app.models.enums import NotificationType, SubmissionStatus, TeacherStatus, UserRole
@@ -384,17 +385,21 @@ async def handle_admin_groups(message: Message, current_user: User, session: Asy
 
 @router.message(F.text.in_(labels("btn_admin_site")))
 async def handle_admin_site(message: Message, current_user: User):
-    """Admin saytni ochadigan tugma. Sayt Telegram imzosi bilan ochiladi va faqat ADMIN_IDS'ga javob beradi."""
+    """
+    Admin saytga kirish: faqat ADMIN_IDS'dagi admin uchun bir martalik (5 daqiqalik) havola beradi.
+    Havola brauzerda ochiladi va sessiyaga almashtiriladi; boshqa hech kim kira olmaydi.
+    """
     lang = lang_of(current_user)
     if not is_admin_check(current_user) or not settings.is_admin(current_user.telegram_id):
         await message.answer(t(lang, "admin_only"))
         return
-    url = (settings.ADMIN_WEB_URL or "").strip()
+    url = (settings.ADMIN_WEB_URL or "").strip().rstrip("/")
     if not url.startswith("https://"):
         await message.answer(t(lang, "admin_site_off"))
         return
+    link = f"{url}#login={create_login_token(current_user.telegram_id)}"
     markup = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=t(lang, "admin_site_button"), web_app=WebAppInfo(url=url))
+        InlineKeyboardButton(text=t(lang, "admin_site_button"), url=link)
     ]])
     await message.answer(t(lang, "admin_site_open"), parse_mode="HTML", reply_markup=markup)
 

@@ -1,9 +1,9 @@
 """
-Admin sayt API. Har bir so'rov Telegram imzosi (initData) bilan keladi va faqat ADMIN_IDS'dagi
-foydalanuvchiga javob beriladi. Boshqa hech kim (shu jumladan oddiy foydalanuvchilar) kira olmaydi.
+Admin sayt API. Kirish: botdagi "Admin sayt" tugmasi bergan bir martalik havola -> /login -> sessiya tokeni.
+Har bir so'rovda sessiya tekshiriladi va admin hali ADMIN_IDS'da ekani qayta tasdiqlanadi.
 """
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -11,10 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.bot_instance import get_bot
+from app.core.admin_session import create_session_token, exchange_login_token, verify_session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.logging import logger
-from app.core.telegram_auth import TelegramAuthError, verify_init_data
 from app.models.enums import SubmissionStatus, UserRole
 from app.models.university import Group, University
 from app.models.user import User
@@ -26,27 +26,25 @@ from app.services.user_service import UserService
 router = APIRouter(prefix="/admin", tags=["Admin sayt"])
 
 
-async def require_admin(
-    x_telegram_init_data: Optional[str] = Header(default=None),
-) -> Dict[str, Any]:
-    try:
-        tg_user = verify_init_data(x_telegram_init_data or "", settings.BOT_TOKEN)
-    except TelegramAuthError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Kirish rad etildi: {e}")
-    if not settings.is_admin(tg_user["id"]):
-        logger.warning(f"Admin site: non-admin {tg_user.get('id')} tried to open the panel")
+async def require_admin(authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    token = authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else ""
+    telegram_id = verify_session(token)
+    if telegram_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Kirish rad etildi: sessiya yo'q yoki tugagan")
+    if not settings.is_admin(telegram_id):
+        logger.warning(f"Admin site: {telegram_id} is no longer an admin")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bu sahifa faqat admin uchun")
-    return tg_user
+    return {"id": telegram_id}
 
 
 Admin = Depends(require_admin)
 
 
-async def _uni(session: AsyncSession, uni_id: int) -> University:
-    univ = await session.get(University, uni_id)
-    if not univ:
+async def _uni(session: AsyncSession, uni: int) -> int:
+    """uni=0 - barcha universitetlar (botdagi umumiy raqamlar)"""
+    if uni and not await session.get(University, uni):
         raise HTTPException(status_code=404, detail="Universitet topilmadi")
-    return univ
+    return uni
 
 
 def _bot():
@@ -56,11 +54,27 @@ def _bot():
     return bot
 
 
-# ---------------- umumiy ----------------
+# ---------------- kirish ----------------
+class LoginIn(BaseModel):
+    token: str = Field(min_length=1, max_length=2000)
+
+
+@router.post("/login")
+async def login(body: LoginIn):
+    """Botdagi tugma bergan bir martalik havolani sessiyaga almashtiradi"""
+    telegram_id = exchange_login_token(body.token)
+    if telegram_id is None:
+        raise HTTPException(status_code=401, detail="Havola eskirgan yoki oldin ishlatilgan")
+    if not settings.is_admin(telegram_id):
+        raise HTTPException(status_code=403, detail="Bu sahifa faqat admin uchun")
+    return {"session": create_session_token(telegram_id)}
+
+
 @router.get("/me")
-async def me(admin: Dict[str, Any] = Admin):
-    return {"id": admin["id"], "name": " ".join(x for x in (admin.get("first_name"), admin.get("last_name")) if x),
-            "username": admin.get("username") or "", "week": svc.current_week()}
+async def me(admin: Dict[str, Any] = Admin, session: AsyncSession = Depends(get_db)):
+    user = await session.scalar(select(User).where(User.telegram_id == admin["id"]))
+    name = " ".join(x for x in (user.first_name, user.last_name) if x) if user else ""
+    return {"id": admin["id"], "name": name or "Admin", "username": (user.username if user else "") or "", "week": svc.current_week()}
 
 
 @router.get("/universities")
@@ -69,21 +83,19 @@ async def universities(admin=Admin, session: AsyncSession = Depends(get_db)):
 
 
 @router.get("/overview")
-async def overview(uni: int = Query(...), admin=Admin, session: AsyncSession = Depends(get_db)):
-    await _uni(session, uni)
-    return await svc.overview(session, uni)
+async def overview(uni: int = Query(0), admin=Admin, session: AsyncSession = Depends(get_db)):
+    return await svc.overview(session, await _uni(session, uni))
 
 
 # ---------------- foydalanuvchilar ----------------
 @router.get("/users")
 async def users(
-    uni: int = Query(...), q: str = "", stage: str = "", lang: str = "", page: int = 1, size: int = 20,
+    uni: int = Query(0), q: str = "", stage: str = "", lang: str = "", page: int = 1, size: int = 20,
     admin=Admin, session: AsyncSession = Depends(get_db),
 ):
-    await _uni(session, uni)
     if stage and stage not in svc.STAGES:
         raise HTTPException(status_code=422, detail="Bosqich noto'g'ri")
-    return await svc.list_users(session, uni, q=q, stage=stage, lang=lang, page=page, size=size)
+    return await svc.list_users(session, await _uni(session, uni), q=q, stage=stage, lang=lang, page=page, size=size)
 
 
 @router.get("/users/{user_id}")
@@ -115,7 +127,7 @@ class TextIn(BaseModel):
 
 @router.post("/users/{user_id}/message")
 async def message_user(user_id: int, body: TextIn, admin=Admin, session: AsyncSession = Depends(get_db)):
-    from app.bot.sender import OK, safe_send
+    from app.bot.sender import safe_send
 
     user = await session.get(User, user_id)
     if not user:
@@ -127,9 +139,8 @@ async def message_user(user_id: int, body: TextIn, admin=Admin, session: AsyncSe
 
 # ---------------- guruhlar ----------------
 @router.get("/groups")
-async def groups(uni: int = Query(...), admin=Admin, session: AsyncSession = Depends(get_db)):
-    await _uni(session, uni)
-    return await svc.list_groups(session, uni)
+async def groups(uni: int = Query(0), admin=Admin, session: AsyncSession = Depends(get_db)):
+    return await svc.list_groups(session, await _uni(session, uni))
 
 
 DEFAULT_REMIND = {
@@ -159,9 +170,8 @@ async def remind_group(group_id: int, admin=Admin, session: AsyncSession = Depen
 
 # ---------------- jadval so'rovlari ----------------
 @router.get("/submissions")
-async def submissions(uni: int = Query(...), admin=Admin, session: AsyncSession = Depends(get_db)):
-    await _uni(session, uni)
-    return await svc.list_submissions(session, uni)
+async def submissions(uni: int = Query(0), admin=Admin, session: AsyncSession = Depends(get_db)):
+    return await svc.list_submissions(session, await _uni(session, uni))
 
 
 @router.get("/submissions/{sub_id}")
@@ -189,32 +199,40 @@ async def save_lessons(sub_id: int, body: LessonsIn, admin=Admin, session: Async
 
 class ReviewIn(BaseModel):
     action: str  # approve | reject
+    reason: Optional[str] = Field(default=None, max_length=500)  # rad etishda: talabaga nima xato ekani
 
 
-async def _notify_after_review(sub_id: int, approved: bool, user_id: int, group_id: Optional[int]) -> None:
-    """Talabaga natija va (tasdiqlansa) guruhdoshlarga 'jadval yangilandi' xabari - botdagi bilan bir xil"""
+async def _review_messages(session: AsyncSession, sub, approved: bool, reason: str) -> List[Tuple[int, str]]:
+    """Qaror haqida xabarlar: talabaga natija (rad etilsa xato matni bilan) va tasdiqlansa guruhdoshlarga 'jadval yangilandi'"""
     from app.bot.i18n import lang_of, t
-    from app.bot.sender import safe_send
     from app.bot.text_utils import esc
-    from app.core.database import AsyncSessionLocal
 
-    bot = get_bot()
-    if not bot:
-        return
-    async with AsyncSessionLocal() as session:
-        student = await session.get(User, user_id)
-        if student:
-            await safe_send(bot, student.telegram_id, t(lang_of(student), "student_approved" if approved else "student_rejected"),
-                            parse_mode="HTML")
-        if approved and group_id:
-            group = await session.get(Group, group_id)
-            for member in await svc.group_members(session, group_id):
-                if member.id == user_id:
-                    continue
-                await safe_send(bot, member.telegram_id,
-                                t(lang_of(member), "group_schedule_updated", group=esc(group.name if group else "")),
-                                parse_mode="HTML")
-                await asyncio.sleep(0.05)
+    out: List[Tuple[int, str]] = []
+    student = await session.get(User, sub.user_id)
+    if student:
+        lang = lang_of(student)
+        if approved:
+            text = t(lang, "student_approved")
+        elif reason:
+            text = t(lang, "student_rejected_reason", reason=esc(reason))
+        else:
+            text = t(lang, "student_rejected")
+        out.append((student.telegram_id, text))
+    if approved and sub.group_id:
+        group = await session.get(Group, sub.group_id)
+        for member in await svc.group_members(session, sub.group_id):
+            if student and member.id == student.id:
+                continue
+            out.append((member.telegram_id, t(lang_of(member), "group_schedule_updated", group=esc(group.name if group else ""))))
+    return out
+
+
+async def _send_all(bot, messages: List[Tuple[int, str]]) -> None:
+    from app.bot.sender import safe_send
+
+    for chat_id, text in messages:
+        await safe_send(bot, chat_id, text, parse_mode="HTML")
+        await asyncio.sleep(0.05)
 
 
 @router.post("/submissions/{sub_id}/review")
@@ -228,34 +246,35 @@ async def review(sub_id: int, body: ReviewIn, admin: Dict[str, Any] = Admin, ses
         raise HTTPException(status_code=409, detail="Bu so'rov allaqachon ko'rib chiqilgan")
     reviewer = await session.scalar(select(User).where(User.telegram_id == admin["id"]))
     approved = body.action == "approve"
+    reason = (body.reason or "").strip()
+    note = "Admin sayt orqali tasdiqlandi" if approved else ("Admin sayt orqali rad etildi" + (f": {reason}" if reason else ""))
     updated = await ScheduleService.review_submission(
         session, sub_id, reviewer.id if reviewer else None,
-        ScheduleSubmissionReview(
-            status=SubmissionStatus.APPROVED if approved else SubmissionStatus.REJECTED,
-            admin_notes="Admin sayt orqali tasdiqlandi" if approved else "Admin sayt orqali rad etildi",
-        ),
+        ScheduleSubmissionReview(status=SubmissionStatus.APPROVED if approved else SubmissionStatus.REJECTED, admin_notes=note),
     )
     warning = updated.admin_notes if updated and updated.admin_notes and "⚠️" in updated.admin_notes else ""
-    if not warning:
-        asyncio.create_task(_notify_after_review(sub_id, approved, sub.user_id, sub.group_id))
-    return {"status": updated.status.value, "warning": warning, "submission": await svc.submission_detail(session, sub_id)}
+    notified = 0
+    bot = get_bot()
+    if not warning and bot:
+        messages = await _review_messages(session, sub, approved, reason)
+        notified = len(messages)
+        asyncio.create_task(_send_all(bot, messages))
+    return {"status": updated.status.value, "warning": warning, "notified": notified, "submission": await svc.submission_detail(session, sub_id)}
 
 
 # ---------------- xabarlar ----------------
 @router.get("/broadcast/audiences")
-async def audiences(uni: int = Query(...), admin=Admin, session: AsyncSession = Depends(get_db)):
-    await _uni(session, uni)
-    return await svc.audience_counts(session, uni)
+async def audiences(uni: int = Query(0), admin=Admin, session: AsyncSession = Depends(get_db)):
+    return await svc.audience_counts(session, await _uni(session, uni))
 
 
 @router.get("/broadcast")
-async def broadcast_history(uni: int = Query(...), admin=Admin, session: AsyncSession = Depends(get_db)):
-    await _uni(session, uni)
-    return await svc.broadcast_history(session, uni)
+async def broadcast_history(uni: int = Query(0), admin=Admin, session: AsyncSession = Depends(get_db)):
+    return await svc.broadcast_history(session, await _uni(session, uni))
 
 
 class BroadcastIn(BaseModel):
-    uni: int
+    uni: int = 0
     audience: str
     text: str = Field(min_length=1, max_length=4000)
 
@@ -265,7 +284,10 @@ async def broadcast(body: BroadcastIn, admin=Admin, session: AsyncSession = Depe
     await _uni(session, body.uni)
     if body.audience not in svc.AUDIENCES:
         raise HTTPException(status_code=422, detail="Auditoriya noto'g'ri")
-    job = await svc.start_broadcast(session, _bot(), body.uni, body.audience, body.text.strip())
+    try:
+        job = await svc.start_broadcast(session, _bot(), body.uni, body.audience, body.text.strip())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     logger.info(f"Admin site broadcast {job['id']} by {admin['id']}: {job['total']} recipients ({body.audience})")
     return job
 
