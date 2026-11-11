@@ -280,6 +280,15 @@ async def test_activity_follows_the_chosen_date(async_client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_submissions_can_be_paged(async_client, db_session):
+    await seed(db_session)
+    first = (await async_client.get("/api/v1/admin/submissions?limit=1", headers=auth())).json()
+    second = (await async_client.get("/api/v1/admin/submissions?limit=1&offset=1", headers=auth())).json()
+    assert len(first) == 1 and len(second) == 1 and first[0]["id"] != second[0]["id"]
+    assert (await async_client.get("/api/v1/admin/submissions?limit=1&offset=50", headers=auth())).json() == []
+
+
+@pytest.mark.asyncio
 async def test_users_list_filters_and_detail(async_client, db_session):
     d = await seed(db_session)
     base = f"/api/v1/admin/users?uni={d['uni'].id}"

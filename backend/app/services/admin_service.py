@@ -408,13 +408,14 @@ def _sub_select():
 
 
 async def list_submissions(session: AsyncSession, uni: int = 0, statuses: Optional[List[SubmissionStatus]] = None,
-                           limit: int = 50) -> List[Dict[str, Any]]:
+                           limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
     stmt = _sub_select()
     if uni:
         stmt = stmt.where(ScheduleSubmission.university_id == uni)
     if statuses:
         stmt = stmt.where(ScheduleSubmission.status.in_(statuses))
-    rows = (await session.execute(stmt.order_by(ScheduleSubmission.id.desc()).limit(max(1, min(limit, 200))))).all()
+    rows = (await session.execute(stmt.order_by(ScheduleSubmission.id.desc())
+                                                .offset(max(0, offset)).limit(max(1, min(limit, 200))))).all()
     return [{
         "id": sub.id, "status": sub.status.value, "created": _fmt(sub.created_at, "%d.%m %H:%M"),
         "group": gname or "", "univ": short_name(univ) if univ else "", "user": first or "", "username": uname or "",

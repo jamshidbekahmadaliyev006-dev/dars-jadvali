@@ -179,7 +179,7 @@ async def remind_group(group_id: int, admin=Admin, session: AsyncSession = Depen
 # ---------------- jadval so'rovlari ----------------
 @router.get("/submissions")
 async def submissions(
-    uni: int = Query(0), status: str = "", limit: int = 50, admin=Admin, session: AsyncSession = Depends(get_db),
+    uni: int = Query(0), status: str = "", limit: int = 50, offset: int = 0, admin=Admin, session: AsyncSession = Depends(get_db),
 ):
     """status: bitta yoki vergul bilan bir nechta holat (masalan ADMIN_REVIEW yoki PENDING,AI_PROCESSING)"""
     wanted: List[SubmissionStatus] = []
@@ -187,7 +187,7 @@ async def submissions(
         if name not in SubmissionStatus.__members__:
             raise HTTPException(status_code=422, detail="Holat noto'g'ri")
         wanted.append(SubmissionStatus[name])
-    return await svc.list_submissions(session, await _uni(session, uni), wanted or None, limit)
+    return await svc.list_submissions(session, await _uni(session, uni), wanted or None, limit, offset)
 
 
 @router.get("/notifications")
