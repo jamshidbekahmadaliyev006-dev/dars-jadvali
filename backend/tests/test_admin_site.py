@@ -257,6 +257,22 @@ async def test_university_view_filters_the_same_rules(async_client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_activity_follows_the_chosen_date(async_client, db_session):
+    d = await seed(db_session)
+    get = lambda q: async_client.get("/api/v1/admin/activity?" + q, headers=auth())
+    day = (await get("period=day")).json()
+    assert len(day["labels"]) == 24 and day["total_users"] == 9 and sum(day["users"]) == 9
+    week = (await get("period=week")).json()
+    assert len(week["labels"]) == 7 and week["total_users"] == 9 and week["start"] <= day["start"] <= week["end"]
+    month = (await get("period=month")).json()
+    assert month["total_users"] == 9 and len(month["labels"]) >= 28
+    old = (await get("period=month&day=2020-02-10")).json()
+    assert old["total_users"] == 0 and len(old["labels"]) == 29 and old["start"] == "2020-02-01"
+    assert (await get(f"period=week&uni={d['other'].id}")).json()["total_users"] == 1
+    assert (await get("period=year")).status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_users_list_filters_and_detail(async_client, db_session):
     d = await seed(db_session)
     base = f"/api/v1/admin/users?uni={d['uni'].id}"

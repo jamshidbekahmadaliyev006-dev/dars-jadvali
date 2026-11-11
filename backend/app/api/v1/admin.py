@@ -87,6 +87,14 @@ async def overview(uni: int = Query(0), admin=Admin, session: AsyncSession = Dep
     return await svc.overview(session, await _uni(session, uni))
 
 
+@router.get("/activity")
+async def activity(
+    uni: int = Query(0), period: str = Query("day", pattern="^(day|week|month)$"), day: str = "",
+    admin=Admin, session: AsyncSession = Depends(get_db),
+):
+    return await svc.activity(session, await _uni(session, uni), period, day)
+
+
 # ---------------- foydalanuvchilar ----------------
 @router.get("/users")
 async def users(

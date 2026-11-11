@@ -223,6 +223,23 @@ td b{font-weight:800}
 .composer textarea:focus,.ta:focus{border-color:var(--accent)}
 .comp-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .comp-row .grow{flex:1;color:var(--muted);font-size:13px}
+.datebtn{display:inline-flex;align-items:center;gap:9px;height:42px;padding:0 14px;border-radius:11px;background:var(--panel);border:1px solid var(--line);font-weight:700;color:var(--fg)}
+.datebtn svg{width:18px;height:18px;color:var(--accent)}
+.datebtn:hover{border-color:var(--accent)}
+.cal{width:100%;max-width:340px;margin:0 auto}
+.cal-top{display:flex;gap:8px;align-items:center;margin:12px 0}
+.cal-top .sel{height:38px;flex:1;min-width:0}
+.cal-nav{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font-size:18px;font-weight:700}
+.cal-nav:hover{border-color:var(--accent)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
+.cal-grid .wd{font-size:12px;color:var(--muted);font-weight:700;padding:6px 0}
+.cal-grid button{height:40px;border-radius:10px;border:1px solid transparent;background:none;color:var(--fg);font-weight:600}
+.cal-grid button:hover:not(:disabled){background:var(--panel-2)}
+.cal-grid button.today{border-color:var(--accent)}
+.cal-grid button.sel{background:var(--accent);color:var(--accent-ink)}
+.cal-grid button:disabled{color:var(--muted);opacity:.4;cursor:default}
+.cal-pre{display:flex;gap:8px;flex-wrap:wrap}
+.tot{color:var(--muted);font-size:13.5px;margin:2px 0 8px}.tot b{color:var(--fg)}
 .seg{display:flex;gap:4px;padding:4px;background:var(--panel-2);border:1px solid var(--line);border-radius:12px;width:fit-content;max-width:100%;flex-wrap:wrap}
 .seg button{border:0;background:none;padding:7px 14px;border-radius:9px;font-weight:700;color:var(--muted);font-size:13.5px}
 .seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
@@ -400,31 +417,37 @@ function donut(parts,mid,midSub){var r=50,C=CIR(r),off=0,out="";
   return '<div class="donut"><svg viewBox="0 0 120 120" role="img" aria-label="'+esc(parts.map(function(p){return p.n+" "+p.v}).join(", "))+'"><circle cx="60" cy="60" r="'+r+'" fill="none" stroke="var(--track)" stroke-width="15"/>'+out+'</svg><div class="mid"><b>'+esc(mid)+'</b><span>'+esc(midSub)+'</span></div></div>'}
 function pad(n){return (n<10?"0":"")+n}
 function ymd(s){var a=s.split("-");return Date.UTC(+a[0],+a[1]-1,+a[2])}
-function buildPer(ov){var map={},e={l:[],u:[],r:[]};
-  ov.users_day.forEach(function(r){(map[r[0]]=map[r[0]]||[0,0])[0]=r[1]});ov.req_day.forEach(function(r){(map[r[0]]=map[r[0]]||[0,0])[1]=r[1]});
-  var keys=Object.keys(map).sort();if(!keys.length)return {day:e,week:e,month:e};
-  var day={l:[],u:[],r:[]},week={},month={},wo=[],mo=[],t0=ymd(keys[0]),t1=ymd(keys[keys.length-1]);
-  if((t1-t0)/86400000>400)t0=t1-400*86400000;
-  for(var t=t0;t<=t1;t+=86400000){var d=new Date(t),k=d.toISOString().slice(0,10),v=map[k]||[0,0];
-    day.l.push(pad(d.getUTCDate())+"."+pad(d.getUTCMonth()+1));day.u.push(v[0]);day.r.push(v[1]);
-    var ws=t-((d.getUTCDay()+6)%7)*86400000,wk=new Date(ws).toISOString().slice(0,10);
-    if(!week[wk]){week[wk]={s:ws,u:0,r:0};wo.push(wk)}week[wk].u+=v[0];week[wk].r+=v[1];
-    var mk=k.slice(0,7);if(!month[mk]){month[mk]={m:d.getUTCMonth(),u:0,r:0};mo.push(mk)}month[mk].u+=v[0];month[mk].r+=v[1]}
-  function last(o,n){return {l:o.l.slice(-n),u:o.u.slice(-n),r:o.r.slice(-n)}}
-  return {day:last(day,14),
-    week:last({l:wo.map(function(k){var s=new Date(week[k].s),en=new Date(week[k].s+6*86400000);return pad(s.getUTCDate())+"."+pad(s.getUTCMonth()+1)+"–"+pad(en.getUTCDate())+"."+pad(en.getUTCMonth()+1)}),u:wo.map(function(k){return week[k].u}),r:wo.map(function(k){return week[k].r})},8),
-    month:last({l:mo.map(function(k){return MON[month[k].m]}),u:mo.map(function(k){return month[k].u}),r:mo.map(function(k){return month[k].r})},12)}}
-var PER=null,PNAME={day:"kunlik",week:"haftalik",month:"oylik"};
+var PNAME={day:"kunlik",week:"haftalik",month:"oylik"},ACT={act:null,grow:null},DATE="";
+function isoOf(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())}
+function todayISO(){return isoOf(new Date())}
+function dateLabel(s){var a=s.split("-");return +a[2]+"-"+MON[+a[1]-1].toLowerCase()+", "+a[0]}
+function shortD(s){var a=s.split("-");return pad(+a[2])+"."+pad(+a[1])+"."+a[0]}
+function rangeLabel(d,p){if(p==="day")return dateLabel(d.start);if(p==="month"){var a=d.start.split("-");return MON[+a[1]-1]+" "+a[0]}return shortD(d.start)+" – "+shortD(d.end)}
+function loadAct(k){var seq=routeSeq,d=DATE,p=pState[k];ACT[k]=null;var el=$(k==="act"?"#card-act":"#card-grow");if(el)el.innerHTML=k==="act"?actInner():growInner();
+  api("/activity?uni="+S.uni.id+"&period="+p+"&day="+d).then(function(r){if(seq!==routeSeq||d!==DATE||p!==pState[k])return;ACT[k]=r;var e2=$(k==="act"?"#card-act":"#card-grow");if(e2)e2.innerHTML=k==="act"?actInner():growInner()}).catch(fail)}
+function applyDate(){var l=$("#dateLbl");if(l)l.textContent=dateLabel(DATE);if($("#card-act")){loadAct("act");loadAct("grow")}}
+/* calendar: month grid, Monday first */
+var CAL={y:0,m:0};
+function calOpen(){var a=DATE.split("-");CAL.y=+a[0];CAL.m=+a[1]-1;calDraw()}
+function calDraw(){var first=new Date(CAL.y,CAL.m,1),off=(first.getDay()+6)%7,days=new Date(CAL.y,CAL.m+1,0).getDate(),today=todayISO(),cells="";
+  ["Du","Se","Ch","Pa","Ju","Sh","Ya"].forEach(function(w){cells+='<span class="wd">'+w+'</span>'});
+  for(var i=0;i<off;i++)cells+='<span></span>';
+  for(var d=1;d<=days;d++){var iso=CAL.y+"-"+pad(CAL.m+1)+"-"+pad(d);cells+='<button type="button" data-cal-day="'+iso+'"'+(iso>today?" disabled":"")+' class="'+(iso===DATE?"sel ":"")+(iso===today?"today":"")+'" aria-label="'+esc(dateLabel(iso))+'">'+d+'</button>'}
+  var yr=new Date().getFullYear(),ys="";for(var y=yr-3;y<=yr;y++)ys+='<option value="'+y+'"'+(y===CAL.y?" selected":"")+'>'+y+'</option>';
+  var ms=MON.map(function(n,i){return '<option value="'+i+'"'+(i===CAL.m?" selected":"")+'>'+n+'</option>'}).join("");
+  openDlg('<h2>Sanani tanlang</h2><div class="cal"><div class="cal-pre"><button class="btn sm" type="button" data-act="cal-today">Bugun</button><button class="btn sm" type="button" data-act="cal-yday">Kecha</button></div><div class="cal-top"><button class="cal-nav" type="button" data-cal-nav="-1" aria-label="Oldingi oy">‹</button><select class="sel" id="calM" aria-label="Oy">'+ms+'</select><select class="sel" id="calY" aria-label="Yil">'+ys+'</select><button class="cal-nav" type="button" data-cal-nav="1" aria-label="Keyingi oy">›</button></div><div class="cal-grid">'+cells+'</div></div><div class="acts"><button class="btn" type="button" data-dlg="x">Yopish</button></div>')}
+function calMove(n){CAL.m+=n;if(CAL.m<0){CAL.m=11;CAL.y--}if(CAL.m>11){CAL.m=0;CAL.y++}calDraw()}
+dlg.addEventListener("change",function(e){if(e.target.id==="calM"){CAL.m=+e.target.value;calDraw()}else if(e.target.id==="calY"){CAL.y=+e.target.value;calDraw()}});
 function niceAxis(max){var steps=[1,2,5,10,20,25,50,100,200,250,500,1000,2000,5000],step=steps.filter(function(s){return max/s<=5})[0]||10000,top=Math.ceil(max/step)*step,tk=[];for(var v=0;v<=top;v+=step)tk.push(v);return {max:top||1,ticks:tk}}
 function perSeg(key){return '<div class="seg per" role="group" aria-label="Davr">'+[["day","Kunlik"],["week","Haftalik"],["month","Oylik"]].map(function(o){return '<button type="button" data-per="'+key+'" data-v="'+o[0]+'" aria-pressed="'+(pState[key]===o[0])+'">'+o[1]+'</button>'}).join("")+'</div>'}
-function bars(p){var d=PER[p],n=d.l.length,W=560,H=250,L=44,B=28,T=14,ax=niceAxis(Math.max.apply(null,d.u.concat(d.r))),ph=H-B-T,gw=(W-L-10)/n,out="",every=n>8?Math.ceil(n/8):1;
+function bars(a){var d={l:a.labels,u:a.users,r:a.reqs},p=a.period,n=d.l.length,W=560,H=250,L=44,B=28,T=14,ax=niceAxis(Math.max.apply(null,d.u.concat(d.r))),ph=H-B-T,gw=(W-L-10)/n,out="",every=n>8?Math.ceil(n/8):1;
   ax.ticks.forEach(function(t){var y=T+ph-t/ax.max*ph;out+='<line class="gl" x1="'+L+'" x2="'+(W-6)+'" y1="'+y+'" y2="'+y+'"/><text x="'+(L-8)+'" y="'+(y+4)+'" text-anchor="end">'+t+'</text>'});
   d.l.forEach(function(lb,i){var x=L+i*gw+gw/2,bw=Math.min(34,gw/4),h1=d.u[i]/ax.max*ph,h2=d.r[i]/ax.max*ph;
     out+='<rect class="hit" data-tip="'+lb+' · yangi foydalanuvchi: '+d.u[i]+'" x="'+(x-bw-2)+'" y="'+(T+ph-h1)+'" width="'+bw+'" height="'+h1+'" rx="4" fill="var(--accent)"/>';
     out+='<rect class="hit" data-tip="'+lb+' · jadval so‘rovi: '+d.r[i]+'" x="'+(x+2)+'" y="'+(T+ph-h2)+'" width="'+bw+'" height="'+h2+'" rx="4" fill="var(--violet)"/>';
     if(i%every===0)out+='<text x="'+x+'" y="'+(H-8)+'" text-anchor="middle">'+lb+'</text>'});
   return '<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Yangi foydalanuvchilar va jadval so‘rovlari ('+PNAME[p]+')">'+out+'</svg>'}
-function area(p){var d=PER[p],v=d.u,n=v.length,W=560,H=250,L=44,B=28,T=14,R=16,ax=niceAxis(Math.max.apply(null,v)),ph=H-B-T,out="",every=n>8?Math.ceil(n/8):1;
+function area(a){var d={l:a.labels},p=a.period,v=a.users,n=v.length,W=560,H=250,L=44,B=28,T=14,R=16,ax=niceAxis(Math.max.apply(null,v)),ph=H-B-T,out="",every=n>8?Math.ceil(n/8):1;
   var pts=v.map(function(y,i){return [n>1?L+i*(W-L-R)/(n-1):(L+W-R)/2,T+ph-y/ax.max*ph]});
   ax.ticks.forEach(function(t){var y=T+ph-t/ax.max*ph;out+='<line class="gl" x1="'+L+'" x2="'+(W-R)+'" y1="'+y+'" y2="'+y+'"/><text x="'+(L-8)+'" y="'+(y+4)+'" text-anchor="end">'+t+'</text>'});
   if(n>1){var line=pts.map(function(q,i){return (i?"L":"M")+q[0].toFixed(1)+" "+q[1].toFixed(1)}).join(" "),fill=line+" L"+pts[n-1][0]+" "+(T+ph)+" L"+pts[0][0]+" "+(T+ph)+" Z";
@@ -432,8 +455,8 @@ function area(p){var d=PER[p],v=d.u,n=v.length,W=560,H=250,L=44,B=28,T=14,R=16,a
   pts.forEach(function(q,i){out+='<circle class="hit" data-tip="'+d.l[i]+' · yangi foydalanuvchi: '+v[i]+'" cx="'+q[0]+'" cy="'+q[1]+'" r="5" fill="var(--panel)" stroke="var(--accent)" stroke-width="3"/>';if(i%every===0)out+='<text x="'+q[0]+'" y="'+(H-8)+'" text-anchor="middle">'+d.l[i]+'</text>'});
   return '<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Yangi foydalanuvchilar ('+PNAME[p]+')">'+out+'</svg>'}
 function noData(t){return '<p class="empty">'+esc(t||"Bu universitetda hali ma’lumot yo‘q.")+'</p>'}
-function actInner(){var has=PER&&PER.day.l.length>0;return perSeg("act")+'<h2>Faollik</h2><p class="sub">Yangi foydalanuvchilar va yuborilgan jadval so‘rovlari ('+PNAME[pState.act]+')</p>'+(has?bars(pState.act)+'<div class="legend-inline"><span><i style="background:var(--accent)"></i>Yangi foydalanuvchilar</span><span><i style="background:var(--violet)"></i>Jadval so‘rovlari</span></div>':noData())}
-function growInner(){var has=PER&&PER.day.l.length>0;return perSeg("grow")+'<h2>Foydalanuvchilar o‘sishi</h2><p class="sub">Yangi qo‘shilgan foydalanuvchilar ('+PNAME[pState.grow]+')</p>'+(has?area(pState.grow):noData())}
+function actInner(){var a=ACT.act;return perSeg("act")+'<h2>Faollik</h2><p class="sub">'+(a?esc(rangeLabel(a,a.period)):'Yuklanmoqda…')+'</p>'+(a?'<p class="tot">Yangi foydalanuvchilar: <b>'+a.total_users+'</b> · Jadval so‘rovlari: <b>'+a.total_reqs+'</b></p>'+bars(a)+'<div class="legend-inline"><span><i style="background:var(--accent)"></i>Yangi foydalanuvchilar</span><span><i style="background:var(--violet)"></i>Jadval so‘rovlari</span></div>':'')}
+function growInner(){var a=ACT.grow;return perSeg("grow")+'<h2>Foydalanuvchilar o‘sishi</h2><p class="sub">'+(a?esc(rangeLabel(a,a.period)):'Yuklanmoqda…')+'</p>'+(a?'<p class="tot">Yangi qo‘shilgan: <b>'+a.total_users+'</b></p>'+area(a):'')}
 var tip=$("#tip");
 document.addEventListener("mousemove",function(e){var t=e.target.closest&&e.target.closest("[data-tip]");if(!t){tip.hidden=true;return}tip.textContent=t.dataset.tip;tip.style.left=e.clientX+"px";tip.style.top=e.clientY+"px";tip.hidden=false});
 
@@ -452,8 +475,7 @@ function viewPanel(){var ov=S.ov;
     '<div class="legend"><div><i style="background:var(--accent)"></i>O‘zbekcha<b>'+(lg.uz||0)+'</b></div><div><i style="background:var(--violet)"></i>Ruscha<b>'+(lg.ru||0)+'</b></div><div><i style="background:var(--orange)"></i>Inglizcha<b>'+(lg.en||0)+'</b></div></div></div>':noData())+'</article>';
   var topCard='<article class="card"><h2>Eng ko‘p fanlar</h2><p class="sub">Faol jadvallarda uchrashi</p>'+(ov.top.length?'<div class="top-list">'+
     ov.top.map(function(s,i){return '<div class="tl"><span class="n">'+(i+1)+'</span><span class="t">'+esc(s[0])+'</span><span class="v">'+s[1]+' <small>dars</small></span></div>'}).join("")+'</div>':noData())+'</article>';
-  var scope=S.uni.id?esc(S.uni.name):(ov.universities+' ta universitet bo‘yicha umumiy ko‘rsatkichlar (botdagi “Statistika” va “Foydalanuvchilar” bilan bir xil)');
-  return '<div class="sec-head"><div><h1>Boshqaruv paneli</h1><p>'+scope+'</p></div></div>'+
+  return '<div class="sec-head"><div><h1>Boshqaruv paneli</h1>'+(S.uni.id?'<p>'+esc(S.uni.name)+'</p>':'')+'</div><button class="datebtn" type="button" data-act="cal-open" aria-label="Sanani tanlash">'+ic("M3 5h18v16H3zM3 10h18M8 3v4M16 3v4")+'<span id="dateLbl">'+esc(dateLabel(DATE))+'</span></button></div>'+
     '<section class="chips" aria-label="Foydalanuvchilar">'+
     chip(ov.total,"Jami foydalanuvchilar","var(--accent)",NAV[1][2],us(""))+
     chip(ov.students,"Talabalar","var(--violet)","M2 9l10-5 10 5-10 5zM6 11.5V16c0 1.4 2.7 3 6 3s6-1.6 6-3v-4.5",us("students"))+
@@ -466,19 +488,20 @@ function viewPanel(){var ov=S.ov;
     chip(ov.lessons,"Faol darslar","var(--orange)","M3 4.5h18v16H3zM3 9.5h18M8 2.5v4M16 2.5v4",gt("guruhlar"))+'</section>'+
     '<section class="row3">'+reqCard+langCard+topCard+'</section>'+
     '<section class="row2"><article class="card" id="card-act">'+actInner()+'</article><article class="card" id="card-grow">'+growInner()+'</article></section>'}
+function initPanel(){loadAct("act");loadAct("grow")}
 
 /* users: list comes page by page from the server */
 function viewUsers(){
   return '<div class="sec-head"><div><h1>Foydalanuvchilar</h1><p id="uCount">'+esc(S.uni.name)+'</p></div></div>'+
-  '<div class="tools"><label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><input id="uq" type="search" placeholder="Ism, @username, ID yoki guruh" aria-label="Ism, username, ID yoki guruh bo‘yicha qidirish" value="'+esc(uState.q)+'"></label>'+
+  '<div class="tools"><label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><input id="uq" type="search" placeholder="Ism, @username yoki guruh" aria-label="Ism, username, ID yoki guruh bo‘yicha qidirish" value="'+esc(uState.q)+'"></label>'+
   '<select class="sel" id="us" aria-label="Bosqich"><option value="">Barcha bosqichlar</option><option value="students">Talabalar</option><option value="done">Jadvali tayyor</option><option value="nosch">Jadval yubormagan</option><option value="teacher">O‘qituvchilar</option><option value="pending">O‘qituvchi (kutmoqda)</option><option value="nogr">Ro‘yxatdan o‘tishni tugatmagan</option></select>'+
   '<select class="sel" id="ul" aria-label="Til"><option value="">Barcha tillar</option><option value="uz">O‘zbekcha</option><option value="en">Inglizcha</option><option value="ru">Ruscha</option></select></div>'+
-  '<div class="tbl-wrap cw"><table class="cards-m" style="min-width:860px"><thead><tr><th>Foydalanuvchi</th><th>Telegram ID</th><th>Fakultet</th><th>Guruh</th><th>Bosqich</th><th>Sana</th><th class="num">Amal</th></tr></thead><tbody id="ub"><tr><td colspan="7"><div class="loading">Yuklanmoqda…</div></td></tr></tbody></table></div><div class="pager" id="up"></div>'}
+  '<div class="tbl-wrap cw"><table class="cards-m" style="min-width:860px"><thead><tr><th>Foydalanuvchi</th><th>Fakultet</th><th>Guruh</th><th>Bosqich</th><th>Sana</th><th>Xabar</th><th class="num">Amal</th></tr></thead><tbody id="ub"><tr><td colspan="7"><div class="loading">Yuklanmoqda…</div></td></tr></tbody></table></div><div class="pager" id="up"></div>'}
 function initUsers(){var size=20,t;
   function load(){var seq=routeSeq,p="/users?uni="+S.uni.id+"&page="+uState.page+"&size="+size+"&q="+encodeURIComponent(uState.q)+"&stage="+uState.stage+"&lang="+uState.lang;
     api(p).then(function(d){if(seq!==routeSeq)return;var pages=Math.max(1,Math.ceil(d.total/size));
       $("#uCount").textContent=esc(S.uni.short)+" · "+d.total+" ta natija";
-      $("#ub").innerHTML=d.items.length?d.items.map(function(u){return '<tr><td><div class="who"><span class="av2" aria-hidden="true">'+esc((u.name||"?").charAt(0))+'</span><span><b>'+esc(u.name)+(u.is_admin?' '+pill("ok","Admin"):'')+(u.active?'':' '+pill("bad","Bloklangan"))+'</b><small>'+(u.username?"@"+esc(u.username):"username yo‘q")+'</small></span></div></td><td>'+u.telegram_id+'</td><td>'+esc((S.uni.id||!u.univ?"":u.univ+" · ")+(u.faculty||"—"))+'</td><td>'+esc(u.group||"—")+'</td><td>'+pill(STG[u.stage][0],STG[u.stage][1])+'</td><td>'+esc(u.created)+'</td><td class="num"><button class="pen" type="button" data-act="user-info" data-id="'+u.id+'" aria-label="'+esc(u.name)+' ma’lumotlari" title="Ma’lumotlar">'+PENCIL+'</button></td></tr>'}).join(""):'<tr><td colspan="7"><div class="empty">Hech narsa topilmadi.</div></td></tr>';
+      $("#ub").innerHTML=d.items.length?d.items.map(function(u){return '<tr><td><div class="who"><span class="av2" aria-hidden="true">'+esc((u.name||"?").charAt(0))+'</span><span><b>'+esc(u.name)+(u.is_admin?' '+pill("ok","Admin"):'')+(u.active?'':' '+pill("bad","Bloklangan"))+'</b><small>'+(u.username?"@"+esc(u.username):"username yo‘q")+'</small></span></div></td><td>'+esc((S.uni.id||!u.univ?"":u.univ+" · ")+(u.faculty||"—"))+'</td><td>'+esc(u.group||"—")+'</td><td>'+pill(STG[u.stage][0],STG[u.stage][1])+'</td><td>'+esc(u.created)+'</td><td><button class="btn sm" type="button" data-act="msg-user" data-id="'+u.id+'" data-name="'+esc(u.name)+'">Xabar yozish</button></td><td class="num"><button class="pen" type="button" data-act="user-info" data-id="'+u.id+'" aria-label="'+esc(u.name)+' ma’lumotlari" title="Ma’lumotlar">'+PENCIL+'</button></td></tr>'}).join(""):'<tr><td colspan="7"><div class="empty">Hech narsa topilmadi.</div></td></tr>';
       $("#up").innerHTML='<span>'+uState.page+' / '+pages+' sahifa</span><div class="pg"><button class="btn sm" type="button" data-pg="-1"'+(uState.page<=1?" disabled":"")+'>Oldingi</button><button class="btn sm" type="button" data-pg="1"'+(uState.page>=pages?" disabled":"")+'>Keyingi</button></div>'}).catch(fail)}
   $("#us").value=uState.stage;$("#ul").value=uState.lang;
   $("#uq").addEventListener("input",function(e){uState.q=e.target.value;uState.page=1;clearTimeout(t);t=setTimeout(load,300)});
@@ -586,10 +609,10 @@ function drawRV(){var r=RV.sub,head='<div class="rv-head"><h2>So‘rov №'+r.id
 dlg.addEventListener("input",function(e){var f=e.target.dataset&&e.target.dataset.rv;if(!f||!RV.draft)return;var p=f.split(":");RV.draft[+p[0]][p[1]]=e.target.value});
 
 /* ---------- router ---------- */
-var VIEWS={panel:[viewPanel,null,"ov"],foydalanuvchilar:[viewUsers,initUsers,null],guruhlar:[viewGroups,initGroups,"groups"],fakultetlar:[viewFac,null,"groups"],sorovlar:[viewReq,null,"subs"],xabarlar:[viewMsg,initMsg,"msg"],sozlamalar:[viewSet,null,null]};
+var VIEWS={panel:[viewPanel,initPanel,"ov"],foydalanuvchilar:[viewUsers,initUsers,null],guruhlar:[viewGroups,initGroups,"groups"],fakultetlar:[viewFac,null,"groups"],sorovlar:[viewReq,null,"subs"],xabarlar:[viewMsg,initMsg,"msg"],sozlamalar:[viewSet,null,null]};
 function drawNav(cur){var n=openCount();$("#nav").innerHTML=NAV.map(function(x){var b=x[0]==="sorovlar"&&n?'<span class="badge">'+n+'</span>':"";return '<a href="#'+x[0]+'"'+(x[0]===cur?' aria-current="page"':"")+'>'+ic(x[2])+x[1]+b+'</a>'}).join("")}
 function need(key,force){
-  if(key==="ov")return (S.ov&&!force)?Promise.resolve():api("/overview?uni="+S.uni.id).then(function(d){S.ov=d;PER=buildPer(d)});
+  if(key==="ov")return (S.ov&&!force)?Promise.resolve():api("/overview?uni="+S.uni.id).then(function(d){S.ov=d});
   if(key==="groups")return (S.groups&&!force)?Promise.resolve():api("/groups?uni="+S.uni.id).then(function(d){S.groups=d});
   if(key==="subs")return Promise.all([S.ov?Promise.resolve():need("ov"),api("/submissions?uni="+S.uni.id+"&status="+encodeURIComponent(rParam()))]).then(function(r){S.subs=r[1]});
   if(key==="msg")return Promise.all([api("/broadcast/audiences?uni="+S.uni.id),api("/broadcast?uni="+S.uni.id+"&audience="+mState.aud)]).then(function(r){MSG.aud=r[0];MSG.hist=r[1]});
@@ -606,7 +629,7 @@ window.addEventListener("hashchange",function(){route()});
 function refreshAll(){S.ov=null;S.groups=null;need("ov",true).then(function(){route(true)}).catch(fail)}
 
 function loadUni(id){S.uni=S.unis.filter(function(u){return u.id===id})[0]||S.unis[0];if(!S.uni)return Promise.resolve();
-  store("uni",S.uni.id);S.ov=null;S.groups=null;S.subs=null;uState.page=1;uState.q="";gState.fac="all";gState.q="";gState.page=1;pState.act="day";pState.grow="day";
+  store("uni",S.uni.id);S.ov=null;S.groups=null;S.subs=null;uState.page=1;uState.q="";gState.fac="all";gState.q="";gState.page=1;pState.act="day";pState.grow="day";DATE=todayISO();
   return need("ov")}
 
 /* ---------- chrome ---------- */
@@ -657,12 +680,17 @@ function userDialog(u){
 
 document.addEventListener("click",function(e){
   var pb=e.target.closest("[data-per]");
-  if(pb){var k=pb.dataset.per;pState[k]=pb.dataset.v;$(k==="act"?"#card-act":"#card-grow").innerHTML=(k==="act"?actInner():growInner());return}
+  if(pb){var k=pb.dataset.per;pState[k]=pb.dataset.v;loadAct(k);return}
+  var cd=e.target.closest("[data-cal-day]");if(cd){DATE=cd.dataset.calDay;closeDlg();applyDate();return}
+  var cn=e.target.closest("[data-cal-nav]");if(cn){calMove(+cn.dataset.calNav);return}
   var th=e.target.closest("button[data-th]");
   if(th){SET.theme=th.dataset.th;store("theme",SET.theme);applyTheme();$$("button[data-th]").forEach(function(x){x.setAttribute("aria-pressed",x===th?"true":"false")});toast("Saqlandi");return}
   var g=e.target.closest("[data-go]");if(g){closeDlg();go(g.dataset.go);return}
   var b=e.target.closest("[data-act]");if(!b)return;var a=b.dataset.act,id=+b.dataset.id;if(b.closest("#bellPop"))pop($("#bellBtn"),$("#bellPop"),false);
-  if(a==="users-stage"){uState.stage=b.dataset.s;uState.page=1;uState.q="";uState.lang="";go("foydalanuvchilar")}
+  if(a==="cal-open"){calOpen()}
+  else if(a==="cal-today"){DATE=todayISO();closeDlg();applyDate()}
+  else if(a==="cal-yday"){var yd=new Date();yd.setDate(yd.getDate()-1);DATE=isoOf(yd);closeDlg();applyDate()}
+  else if(a==="users-stage"){uState.stage=b.dataset.s;uState.page=1;uState.q="";uState.lang="";go("foydalanuvchilar")}
   else if(a==="req-filter"){rState.status=b.dataset.s||"";if(location.hash==="#sorovlar")route();else go("sorovlar")}
   else if(a==="open-fac"){gState.fac=b.dataset.f;gState.q="";gState.st="all";gState.page=1;go("guruhlar")}
   else if(a==="group-info"){var gr=S.groups.filter(function(x){return x.id===id})[0],has=gr.subjects>0;

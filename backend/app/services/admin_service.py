@@ -178,6 +178,60 @@ async def overview(session: AsyncSession, uni: int = 0) -> Dict[str, Any]:
     }
 
 
+async def activity(session: AsyncSession, uni: int, period: str, day: Optional[str]) -> Dict[str, Any]:
+    """Tanlangan sana bo'yicha faollik: kun -> 24 soat, hafta -> 7 kun (dushanba-yakshanba), oy -> oyning kunlari.
+    Vaqt Toshkent bo'yicha; bazada UTC saqlanadi."""
+    import calendar
+    from datetime import date, timedelta
+
+    tz = pytz.timezone(settings.TIMEZONE)
+    try:
+        d = date.fromisoformat(day) if day else datetime.now(tz).date()
+    except ValueError:
+        d = datetime.now(tz).date()
+    if period == "week":
+        start = d - timedelta(days=d.weekday())
+        end = start + timedelta(days=7)
+    elif period == "month":
+        start = d.replace(day=1)
+        end = (start + timedelta(days=calendar.monthrange(d.year, d.month)[1]))
+    else:
+        period, start, end = "day", d, d + timedelta(days=1)
+
+    def to_utc(x: date) -> datetime:
+        return tz.localize(datetime(x.year, x.month, x.day)).astimezone(pytz.utc).replace(tzinfo=None)
+
+    lo, hi = to_utc(start), to_utc(end)
+    if period == "day":
+        n = 24
+        labels = [f"{h:02d}:00" for h in range(n)]
+        key = lambda dt: dt.hour
+    else:
+        n = (end - start).days
+        labels = [f"{(start + timedelta(days=i)).day:02d}.{(start + timedelta(days=i)).month:02d}" for i in range(n)]
+        key = lambda dt: (dt.date() - start).days
+
+    def bucket(rows) -> List[int]:
+        out = [0] * n
+        for (created,) in rows:
+            if created is None:
+                continue
+            local = pytz.utc.localize(created).astimezone(tz)
+            i = key(local)
+            if 0 <= i < n:
+                out[i] += 1
+        return out
+
+    users = bucket((await session.execute(
+        select(User.created_at).where(_scope(uni), User.created_at >= lo, User.created_at < hi))).all())
+    reqs = bucket((await session.execute(
+        select(ScheduleSubmission.created_at).where(
+            ScheduleSubmission.university_id == uni if uni else true(),
+            ScheduleSubmission.created_at >= lo, ScheduleSubmission.created_at < hi))).all())
+    return {"period": period, "start": start.isoformat(), "end": (end - timedelta(days=1)).isoformat(),
+            "labels": labels, "users": users, "reqs": reqs, "total_users": sum(users), "total_reqs": sum(reqs)}
+
+
 # ---------------- foydalanuvchilar ----------------
 def _user_row(user: User, group_name: Optional[str], faculty_name: Optional[str], univ: Optional[University],
               has_schedule: bool, is_teacher: bool, is_pending: bool) -> Dict[str, Any]:
