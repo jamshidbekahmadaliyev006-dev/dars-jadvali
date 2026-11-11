@@ -265,9 +265,16 @@ async def test_activity_follows_the_chosen_date(async_client, db_session):
     week = (await get("period=week")).json()
     assert len(week["labels"]) == 7 and week["total_users"] == 9 and week["start"] <= day["start"] <= week["end"]
     month = (await get("period=month")).json()
-    assert month["total_users"] == 9 and len(month["labels"]) >= 28
+    assert month["total_users"] == 9 and 4 <= len(month["labels"]) <= 6 and "–" in month["labels"][0]
+    assert week["labels"][0].startswith("Du ")
     old = (await get("period=month&day=2020-02-10")).json()
-    assert old["total_users"] == 0 and len(old["labels"]) == 29 and old["start"] == "2020-02-01"
+    assert old["total_users"] == 0 and len(old["labels"]) == 5 and old["labels"][0] == "01–02.02" and old["start"] == "2020-02-01"
+    # sana o'tmishda bo'lsa, umumiy raqamlar ham o'sha kungacha bo'lgan holatni ko'rsatadi
+    past = (await async_client.get("/api/v1/admin/overview?uni=0&day=2020-02-10", headers=auth())).json()
+    assert past["total"] == 0 and past["groups"] == 0 and past["req_status"] == {}
+    now = (await async_client.get("/api/v1/admin/overview?uni=0", headers=auth())).json()
+    today = (await async_client.get(f"/api/v1/admin/overview?uni=0&day={day['start']}", headers=auth())).json()
+    assert today["total"] == now["total"] == 9
     assert (await get(f"period=week&uni={d['other'].id}")).json()["total_users"] == 1
     assert (await get("period=year")).status_code == 422
 

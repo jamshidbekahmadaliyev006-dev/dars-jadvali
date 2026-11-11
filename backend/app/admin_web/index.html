@@ -226,19 +226,20 @@ td b{font-weight:800}
 .datebtn{display:inline-flex;align-items:center;gap:9px;height:42px;padding:0 14px;border-radius:11px;background:var(--panel);border:1px solid var(--line);font-weight:700;color:var(--fg)}
 .datebtn svg{width:18px;height:18px;color:var(--accent)}
 .datebtn:hover{border-color:var(--accent)}
-.cal{width:100%;max-width:340px;margin:0 auto}
-.cal-top{display:flex;gap:8px;align-items:center;margin:12px 0}
-.cal-top .sel{height:38px;flex:1;min-width:0}
-.cal-nav{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font-size:18px;font-weight:700}
+.cal{width:100%}
+.cal h2{margin:0}
+.cal-top{display:flex;gap:6px;align-items:center;margin:10px 0 6px}
+.cal-top .sel{height:34px;flex:1;min-width:0;padding:0 6px;font-size:13px}
+.cal-nav{width:34px;height:34px;flex:none;padding:0;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font-size:18px;font-weight:700}
 .cal-nav:hover{border-color:var(--accent)}
-.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
-.cal-grid .wd{font-size:12px;color:var(--muted);font-weight:700;padding:6px 0}
-.cal-grid button{height:40px;border-radius:10px;border:1px solid transparent;background:none;color:var(--fg);font-weight:600}
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;text-align:center}
+.cal-grid .wd{font-size:11.5px;color:var(--muted);font-weight:700;padding:2px 0}
+.cal-grid button{height:34px;min-height:0;padding:0;border-radius:10px;border:1px solid transparent;background:none;color:var(--fg);font-weight:600}
 .cal-grid button:hover:not(:disabled){background:var(--panel-2)}
 .cal-grid button.today{border-color:var(--accent)}
 .cal-grid button.sel{background:var(--accent);color:var(--accent-ink)}
 .cal-grid button:disabled{color:var(--muted);opacity:.4;cursor:default}
-.cal-pre{display:flex;gap:8px;flex-wrap:wrap}
+.cal-pre{display:flex;gap:6px;margin-bottom:2px}
 .tot{color:var(--muted);font-size:13.5px;margin:2px 0 8px}.tot b{color:var(--fg)}
 .seg{display:flex;gap:4px;padding:4px;background:var(--panel-2);border:1px solid var(--line);border-radius:12px;width:fit-content;max-width:100%;flex-wrap:wrap}
 .seg button{border:0;background:none;padding:7px 14px;border-radius:9px;font-weight:700;color:var(--muted);font-size:13.5px}
@@ -251,6 +252,8 @@ td b{font-weight:800}
 
 dialog{border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:18px;padding:0;width:min(480px,calc(100% - 32px));box-shadow:var(--shadow)}
 dialog.wide{width:min(980px,calc(100% - 24px))}
+dialog.narrow{width:min(320px,calc(100% - 24px));overflow:hidden}
+dialog.narrow #dlgBody{padding:16px}
 dialog::backdrop{background:rgba(0,0,0,.55)}
 .dlg{padding:22px;display:flex;flex-direction:column;gap:14px;max-height:calc(100vh - 56px);overflow:auto}
 .dlg h2{font-size:19px}
@@ -401,7 +404,7 @@ var routeSeq=0;
 
 /* ---------- dialog ---------- */
 var dlg=$("#dlg"),dlgBody=$("#dlgBody");
-function openDlg(html,wide){dlg.classList.toggle("wide",!!wide);dlgBody.innerHTML=html;if(!dlg.open){try{dlg.showModal()}catch(e){dlg.setAttribute("open","")}}}
+function openDlg(html,wide){dlg.classList.toggle("wide",!!wide);dlg.classList.remove("narrow");dlgBody.innerHTML=html;if(!dlg.open){try{dlg.showModal()}catch(e){dlg.setAttribute("open","")}}}
 function closeDlg(){try{dlg.close()}catch(e){dlg.removeAttribute("open")}}
 function confirmDlg(title,text,okLabel,onOk,danger){
   openDlg('<h2>'+esc(title)+'</h2><p>'+esc(text)+'</p><div class="acts"><button class="btn" type="button" data-dlg="x">Bekor qilish</button><button class="btn '+(danger?'danger':'primary')+'" type="button" data-dlg="ok">'+esc(okLabel)+'</button></div>');
@@ -425,7 +428,7 @@ function shortD(s){var a=s.split("-");return pad(+a[2])+"."+pad(+a[1])+"."+a[0]}
 function rangeLabel(d,p){if(p==="day")return dateLabel(d.start);if(p==="month"){var a=d.start.split("-");return MON[+a[1]-1]+" "+a[0]}return shortD(d.start)+" – "+shortD(d.end)}
 function loadAct(k){var seq=routeSeq,d=DATE,p=pState[k];ACT[k]=null;var el=$(k==="act"?"#card-act":"#card-grow");if(el)el.innerHTML=k==="act"?actInner():growInner();
   api("/activity?uni="+S.uni.id+"&period="+p+"&day="+d).then(function(r){if(seq!==routeSeq||d!==DATE||p!==pState[k])return;ACT[k]=r;var e2=$(k==="act"?"#card-act":"#card-grow");if(e2)e2.innerHTML=k==="act"?actInner():growInner()}).catch(fail)}
-function applyDate(){var l=$("#dateLbl");if(l)l.textContent=dateLabel(DATE);if($("#card-act")){loadAct("act");loadAct("grow")}}
+function applyDate(){S.ov=null;route()}
 /* calendar: month grid, Monday first */
 var CAL={y:0,m:0};
 function calOpen(){var a=DATE.split("-");CAL.y=+a[0];CAL.m=+a[1]-1;calDraw()}
@@ -435,7 +438,7 @@ function calDraw(){var first=new Date(CAL.y,CAL.m,1),off=(first.getDay()+6)%7,da
   for(var d=1;d<=days;d++){var iso=CAL.y+"-"+pad(CAL.m+1)+"-"+pad(d);cells+='<button type="button" data-cal-day="'+iso+'"'+(iso>today?" disabled":"")+' class="'+(iso===DATE?"sel ":"")+(iso===today?"today":"")+'" aria-label="'+esc(dateLabel(iso))+'">'+d+'</button>'}
   var yr=new Date().getFullYear(),ys="";for(var y=yr-3;y<=yr;y++)ys+='<option value="'+y+'"'+(y===CAL.y?" selected":"")+'>'+y+'</option>';
   var ms=MON.map(function(n,i){return '<option value="'+i+'"'+(i===CAL.m?" selected":"")+'>'+n+'</option>'}).join("");
-  openDlg('<h2>Sanani tanlang</h2><div class="cal"><div class="cal-pre"><button class="btn sm" type="button" data-act="cal-today">Bugun</button><button class="btn sm" type="button" data-act="cal-yday">Kecha</button></div><div class="cal-top"><button class="cal-nav" type="button" data-cal-nav="-1" aria-label="Oldingi oy">‹</button><select class="sel" id="calM" aria-label="Oy">'+ms+'</select><select class="sel" id="calY" aria-label="Yil">'+ys+'</select><button class="cal-nav" type="button" data-cal-nav="1" aria-label="Keyingi oy">›</button></div><div class="cal-grid">'+cells+'</div></div><div class="acts"><button class="btn" type="button" data-dlg="x">Yopish</button></div>')}
+  openDlg('<div class="cal"><div class="cal-pre"><b style="flex:1;align-self:center">Sanani tanlang</b><button class="btn sm" type="button" data-act="cal-today">Bugun</button><button class="btn sm" type="button" data-act="cal-yday">Kecha</button></div><div class="cal-top"><button class="cal-nav" type="button" data-cal-nav="-1" aria-label="Oldingi oy">‹</button><select class="sel" id="calM" aria-label="Oy">'+ms+'</select><select class="sel" id="calY" aria-label="Yil">'+ys+'</select><button class="cal-nav" type="button" data-cal-nav="1" aria-label="Keyingi oy">›</button></div><div class="cal-grid">'+cells+'</div></div>');dlg.classList.add("narrow")}
 function calMove(n){CAL.m+=n;if(CAL.m<0){CAL.m=11;CAL.y--}if(CAL.m>11){CAL.m=0;CAL.y++}calDraw()}
 dlg.addEventListener("change",function(e){if(e.target.id==="calM"){CAL.m=+e.target.value;calDraw()}else if(e.target.id==="calY"){CAL.y=+e.target.value;calDraw()}});
 function niceAxis(max){var steps=[1,2,5,10,20,25,50,100,200,250,500,1000,2000,5000],step=steps.filter(function(s){return max/s<=5})[0]||10000,top=Math.ceil(max/step)*step,tk=[];for(var v=0;v<=top;v+=step)tk.push(v);return {max:top||1,ticks:tk}}
@@ -468,7 +471,7 @@ function viewPanel(){var ov=S.ov;
   var us=function(s){return 'data-act="users-stage" data-s="'+s+'"'},gt=function(g){return 'data-go="'+g+'"'};
   var rs=ov.req_status,ok=rs.APPROVED||0,rv=rs.ADMIN_REVIEW||0,fx=rs.NEEDS_CORRECTION||0,bd=rs.REJECTED||0,ot=(rs.PENDING||0)+(rs.AI_PROCESSING||0)+(rs.AI_COMPLETED||0),tot=ok+rv+fx+bd+ot,pc=function(n){return tot?Math.round(n/tot*100):0};
   var lg=ov.lang,lt=(lg.uz||0)+(lg.ru||0)+(lg.en||0);
-  var reqCard='<article class="card"><div class="card-h"><div><h2>Jadval so‘rovlari holati</h2><p class="sub">Jami '+tot+' ta so‘rov. Aylanani bossangiz, shu so‘rovlar ro‘yxati ochiladi</p></div><button class="link" type="button" data-act="req-filter" data-s="">Hammasi</button></div>'+
+  var reqCard='<article class="card"><div class="card-h"><div><h2>Jadval so‘rovlari holati</h2><p class="sub">Jami '+tot+'rov.‘rov. Aylanani bossangiz, shu so‘rovlar ro‘yxati ochiladi</p></div><button class="link" type="button" data-act="req-filter" data-s="">Hammasi</button></div>'+
     (tot?'<div class="rings">'+ring(pc(ok),"var(--ok)","Tasdiqlangan",ok+" ta","APPROVED")+ring(pc(rv),"var(--warn)","Ko‘rib chiqish kerak",rv+" ta","ADMIN_REVIEW")+ring(pc(fx),"var(--idle)","Talaba tuzatishi kerak",fx+" ta","NEEDS_CORRECTION")+ring(pc(bd),"var(--bad)","Rad etilgan",bd+" ta","REJECTED")+(ot?ring(pc(ot),"var(--violet)","Jarayonda",ot+" ta","OTHER"):"")+'</div>':noData("Hali jadval so‘rovi yo‘q."))+'</article>';
   var langCard='<article class="card"><h2>Tillar</h2><p class="sub">'+lt+' foydalanuvchi bo‘yicha</p>'+(lt?
     '<div class="donut-w">'+donut([{n:"O‘zbekcha",v:lg.uz||0,t:lt,c:"var(--accent)"},{n:"Ruscha",v:lg.ru||0,t:lt,c:"var(--violet)"},{n:"Inglizcha",v:lg.en||0,t:lt,c:"var(--orange)"}],Math.round((lg.uz||0)/lt*100)+"%","o‘zbekcha")+
@@ -546,7 +549,7 @@ function viewReq(){var L=S.subs,rs=(S.ov&&S.ov.req_status)||{},c=function(k){ret
   all=c("APPROVED")+c("ADMIN_REVIEW")+c("NEEDS_CORRECTION")+c("REJECTED")+oth,
   tabs=[["","Hammasi",all],["APPROVED","Tasdiqlangan",c("APPROVED")],["ADMIN_REVIEW","Ko‘rib chiqish kerak",c("ADMIN_REVIEW")],["NEEDS_CORRECTION","Talaba tuzatishi kerak",c("NEEDS_CORRECTION")],["REJECTED","Rad etilgan",c("REJECTED")]];
   if(oth)tabs.push(["OTHER","Jarayonda",oth]);
-  return '<div class="sec-head"><div><h1>Jadval so‘rovlari</h1><p>'+L.length+' ta so‘rov ko‘rsatilmoqda'+(L.length>=50?" (so‘nggi 50 tasi)":"")+'</p></div></div>'+
+  return '<div class="sec-head"><div><h1>Jadval so‘rovlari</h1><p>'+L.length+'rov.‘rov ko‘rsatilmoqda'+(L.length>=50?" (so‘nggi 50 tasi)":"")+'</p></div></div>'+
   '<div class="tools" role="group" aria-label="Holat bo‘yicha">'+tabs.map(function(x){return '<button class="chip" type="button" data-act="req-filter" data-s="'+x[0]+'" aria-pressed="'+(rState.status===x[0])+'">'+x[1]+' <b>'+x[2]+'</b></button>'}).join("")+'</div>'+
   (rState.status==="NEEDS_CORRECTION"?'<p class="note">Bu so‘rovlarda AI xato topgan va talabaga “tuzatib qaytadan yuboring” deyilgan. Admin hech narsa qilishi shart emas. Xohlasangiz, “Ko‘rish” orqali darslarni o‘zingiz ham tuzata olasiz.</p>':"")+
   '<div class="tbl-wrap cw"><table class="cards-m" style="min-width:820px"><thead><tr><th>So‘rov</th><th>Guruh</th><th>Kim yubordi</th><th>Vaqt</th><th class="num">Darslar</th><th>Holat</th><th class="num">Amal</th></tr></thead><tbody>'+
@@ -612,7 +615,7 @@ dlg.addEventListener("input",function(e){var f=e.target.dataset&&e.target.datase
 var VIEWS={panel:[viewPanel,initPanel,"ov"],foydalanuvchilar:[viewUsers,initUsers,null],guruhlar:[viewGroups,initGroups,"groups"],fakultetlar:[viewFac,null,"groups"],sorovlar:[viewReq,null,"subs"],xabarlar:[viewMsg,initMsg,"msg"],sozlamalar:[viewSet,null,null]};
 function drawNav(cur){var n=openCount();$("#nav").innerHTML=NAV.map(function(x){var b=x[0]==="sorovlar"&&n?'<span class="badge">'+n+'</span>':"";return '<a href="#'+x[0]+'"'+(x[0]===cur?' aria-current="page"':"")+'>'+ic(x[2])+x[1]+b+'</a>'}).join("")}
 function need(key,force){
-  if(key==="ov")return (S.ov&&!force)?Promise.resolve():api("/overview?uni="+S.uni.id).then(function(d){S.ov=d});
+  if(key==="ov")return (S.ov&&!force)?Promise.resolve():api("/overview?uni="+S.uni.id+"&day="+DATE).then(function(d){S.ov=d});
   if(key==="groups")return (S.groups&&!force)?Promise.resolve():api("/groups?uni="+S.uni.id).then(function(d){S.groups=d});
   if(key==="subs")return Promise.all([S.ov?Promise.resolve():need("ov"),api("/submissions?uni="+S.uni.id+"&status="+encodeURIComponent(rParam()))]).then(function(r){S.subs=r[1]});
   if(key==="msg")return Promise.all([api("/broadcast/audiences?uni="+S.uni.id),api("/broadcast?uni="+S.uni.id+"&audience="+mState.aud)]).then(function(r){MSG.aud=r[0];MSG.hist=r[1]});

@@ -83,8 +83,8 @@ async def universities(admin=Admin, session: AsyncSession = Depends(get_db)):
 
 
 @router.get("/overview")
-async def overview(uni: int = Query(0), admin=Admin, session: AsyncSession = Depends(get_db)):
-    return await svc.overview(session, await _uni(session, uni))
+async def overview(uni: int = Query(0), day: str = "", admin=Admin, session: AsyncSession = Depends(get_db)):
+    return await svc.overview(session, await _uni(session, uni), svc.day_end_utc(day))
 
 
 @router.get("/activity")

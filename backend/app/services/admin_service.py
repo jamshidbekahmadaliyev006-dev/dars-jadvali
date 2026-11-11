@@ -97,9 +97,9 @@ def _stage(user: User, has_schedule: bool, is_teacher: bool, is_pending: bool) -
 
 
 # ---------------- universitetlar ----------------
-async def user_counts(session: AsyncSession, uni: int = 0) -> Dict[str, int]:
+async def user_counts(session: AsyncSession, uni: int = 0, until: Optional[datetime] = None) -> Dict[str, int]:
     """Botning 'Foydalanuvchilar' oynasidagi 4 ta son (har bir foydalanuvchi bitta toifada)"""
-    scope = _scope(uni)
+    scope = and_(_scope(uni), User.created_at < until) if until else _scope(uni)
     q = lambda *where: session.scalar(select(func.count(User.id)).where(scope, *where))
     total = await q() or 0
     teachers = await q(User.id.in_(_approved_ids())) or 0
@@ -109,13 +109,19 @@ async def user_counts(session: AsyncSession, uni: int = 0) -> Dict[str, int]:
             "unregistered": total - teachers - pending - students}
 
 
-async def statistics(session: AsyncSession, uni: int = 0) -> Dict[str, int]:
+async def statistics(session: AsyncSession, uni: int = 0, until: Optional[datetime] = None) -> Dict[str, int]:
     """Botning 'Statistika' oynasidagi sonlar (fanlar: guruhlardagi darslar emas, takrorlanmas fanlar)"""
     fac = select(func.count(Faculty.id)).where(Faculty.name != GENERAL_FACULTY_NAME)
     grp = select(func.count(Group.id))
     pairs = select(Subject.name, Subject.code).join(Schedule, Schedule.subject_id == Subject.id).where(Schedule.is_active == True)
     t_lessons = select(TeacherLesson.subject).where(TeacherLesson.is_active == True)
     lessons = select(func.count(Schedule.id)).where(Schedule.is_active == True)
+    if until:
+        fac = fac.where(Faculty.created_at < until)
+        grp = grp.where(Group.created_at < until)
+        pairs = pairs.where(Schedule.created_at < until)
+        lessons = lessons.where(Schedule.created_at < until)
+        t_lessons = t_lessons.where(TeacherLesson.created_at < until)
     if uni:
         fac = fac.where(Faculty.university_id == uni)
         grp = grp.where(Group.university_id == uni)
@@ -131,7 +137,8 @@ async def statistics(session: AsyncSession, uni: int = 0) -> Dict[str, int]:
         if clean:
             keys.add(("c:" + code) if code else ("n:" + name_key(clean)))
     return {
-        "universities": 1 if uni else (await session.scalar(select(func.count(University.id))) or 0),
+        "universities": 1 if uni else (await session.scalar(
+            select(func.count(University.id)).where(University.created_at < until if until else true())) or 0),
         "faculties": await session.scalar(fac) or 0,
         "groups": await session.scalar(grp) or 0,
         "subjects": len(keys),
@@ -148,10 +155,14 @@ async def list_universities(session: AsyncSession) -> List[Dict[str, Any]]:
     return items
 
 
-async def overview(session: AsyncSession, uni: int = 0) -> Dict[str, Any]:
-    scope = _scope(uni)
+async def overview(session: AsyncSession, uni: int = 0, until: Optional[datetime] = None) -> Dict[str, Any]:
+    """until - tanlangan sana oxiri (naive UTC): shu paytgacha bo'lgan holat. None - hozirgi holat (botdagi bilan bir xil)"""
+    scope = and_(_scope(uni), User.created_at < until) if until else _scope(uni)
     subs = ScheduleSubmission.university_id == uni if uni else true()
     sched = Schedule.university_id == uni if uni else true()
+    if until:
+        subs = and_(subs, ScheduleSubmission.created_at < until)
+        sched = and_(sched, Schedule.created_at < until)
 
     req_status = {s.value if hasattr(s, "value") else s: n for s, n in (await session.execute(
         select(ScheduleSubmission.status, func.count(ScheduleSubmission.id)).where(subs).group_by(ScheduleSubmission.status)
@@ -172,10 +183,24 @@ async def overview(session: AsyncSession, uni: int = 0) -> Dict[str, Any]:
         .where(subs).group_by(func.date(ScheduleSubmission.created_at))
     )).all() if d]
     return {
-        **await user_counts(session, uni), **await statistics(session, uni),
+        **await user_counts(session, uni, until), **await statistics(session, uni, until),
         "req_status": req_status, "lang": {k or "uz": v for k, v in lang.items()},
         "top": top, "users_day": sorted(users_day), "req_day": sorted(req_day),
     }
+
+
+def day_end_utc(day: str) -> Optional[datetime]:
+    """'2026-11-09' -> o'sha kun tugagan payt (naive UTC). Bugun, kelajak yoki noto'g'ri sana -> None (hozirgi holat)"""
+    from datetime import date, timedelta
+    tz = pytz.timezone(settings.TIMEZONE)
+    try:
+        d = date.fromisoformat(day)
+    except (TypeError, ValueError):
+        return None
+    if d >= datetime.now(tz).date():
+        return None
+    nxt = d + timedelta(days=1)
+    return tz.localize(datetime(nxt.year, nxt.month, nxt.day)).astimezone(pytz.utc).replace(tzinfo=None)
 
 
 async def activity(session: AsyncSession, uni: int, period: str, day: Optional[str]) -> Dict[str, Any]:
@@ -206,10 +231,22 @@ async def activity(session: AsyncSession, uni: int, period: str, day: Optional[s
         n = 24
         labels = [f"{h:02d}:00" for h in range(n)]
         key = lambda dt: dt.hour
-    else:
-        n = (end - start).days
-        labels = [f"{(start + timedelta(days=i)).day:02d}.{(start + timedelta(days=i)).month:02d}" for i in range(n)]
+    elif period == "week":
+        n = 7
+        wd = ["Du", "Se", "Ch", "Pa", "Ju", "Sh", "Ya"]
+        labels = [f"{wd[i]} {(start + timedelta(days=i)).day:02d}.{(start + timedelta(days=i)).month:02d}" for i in range(n)]
         key = lambda dt: (dt.date() - start).days
+    else:
+        # oy: haftalar bo'yicha (dushanba-yakshanba, oy chegarasi bilan kesilgan)
+        last = end - timedelta(days=1)
+        weeks, cur = [], start
+        while cur <= last:
+            stop = min(cur + timedelta(days=6 - cur.weekday()), last)
+            weeks.append((cur, stop))
+            cur = stop + timedelta(days=1)
+        n = len(weeks)
+        labels = [f"{a.day:02d}–{b.day:02d}.{a.month:02d}" for a, b in weeks]
+        key = lambda dt: next((i for i, (a, b) in enumerate(weeks) if a <= dt.date() <= b), -1)
 
     def bucket(rows) -> List[int]:
         out = [0] * n
