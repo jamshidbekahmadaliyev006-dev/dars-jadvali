@@ -19,7 +19,7 @@ from app.models.university import (
 from app.models.user import User
 from app.models.schedule import ReminderSetting, Schedule, ScheduleSubmission
 from app.models.task import PersonalEvent, PersonalTask
-from app.models.log import AIProcessingLog, Announcement, NotificationLog
+from app.models.log import AdminBroadcast, AIProcessingLog, Announcement, NotificationLog
 from app.models.teacher import TeacherLesson, TeacherProfile
 
 __all__ = [
@@ -45,6 +45,7 @@ __all__ = [
     "PersonalTask",
     "PersonalEvent",
     "Announcement",
+    "AdminBroadcast",
     "NotificationLog",
     "AIProcessingLog",
     "TeacherProfile",

@@ -170,8 +170,22 @@ async def remind_group(group_id: int, admin=Admin, session: AsyncSession = Depen
 
 # ---------------- jadval so'rovlari ----------------
 @router.get("/submissions")
-async def submissions(uni: int = Query(0), admin=Admin, session: AsyncSession = Depends(get_db)):
-    return await svc.list_submissions(session, await _uni(session, uni))
+async def submissions(
+    uni: int = Query(0), status: str = "", limit: int = 50, admin=Admin, session: AsyncSession = Depends(get_db),
+):
+    """status: bitta yoki vergul bilan bir nechta holat (masalan ADMIN_REVIEW yoki PENDING,AI_PROCESSING)"""
+    wanted: List[SubmissionStatus] = []
+    for name in [s.strip() for s in status.split(",") if s.strip()]:
+        if name not in SubmissionStatus.__members__:
+            raise HTTPException(status_code=422, detail="Holat noto'g'ri")
+        wanted.append(SubmissionStatus[name])
+    return await svc.list_submissions(session, await _uni(session, uni), wanted or None, limit)
+
+
+@router.get("/notifications")
+async def notifications(since: int = Query(0), admin=Admin, session: AsyncSession = Depends(get_db)):
+    """Qo'ng'iroqcha: oxirgi qo'shilgan foydalanuvchilar va ko'rib chiqilishi kerak so'rovlar soni (hamma universitetlar)"""
+    return await svc.notifications(session, since)
 
 
 @router.get("/submissions/{sub_id}")
@@ -269,8 +283,11 @@ async def audiences(uni: int = Query(0), admin=Admin, session: AsyncSession = De
 
 
 @router.get("/broadcast")
-async def broadcast_history(uni: int = Query(0), admin=Admin, session: AsyncSession = Depends(get_db)):
-    return await svc.broadcast_history(session, await _uni(session, uni))
+async def broadcast_history(uni: int = Query(0), audience: str = "", admin=Admin, session: AsyncSession = Depends(get_db)):
+    """Tanlangan auditoriyaga yuborilgan xabarlar tarixi; boshqa auditoriyaniki aralashmaydi"""
+    if audience and audience not in svc.AUDIENCES:
+        raise HTTPException(status_code=422, detail="Auditoriya noto'g'ri")
+    return await svc.broadcast_history(session, await _uni(session, uni), audience)
 
 
 class BroadcastIn(BaseModel):
@@ -292,9 +309,9 @@ async def broadcast(body: BroadcastIn, admin=Admin, session: AsyncSession = Depe
     return job
 
 
-@router.get("/broadcast/{ann_id}")
-async def broadcast_status(ann_id: int, admin=Admin):
-    job = svc.BROADCASTS.get(ann_id)
+@router.get("/broadcast/{broadcast_id}")
+async def broadcast_status(broadcast_id: int, admin=Admin, session: AsyncSession = Depends(get_db)):
+    job = await svc.broadcast_job(session, broadcast_id)
     if not job:
         raise HTTPException(status_code=404, detail="Topilmadi")
     return job

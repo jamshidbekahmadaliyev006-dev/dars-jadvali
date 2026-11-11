@@ -17,7 +17,9 @@ from app.models.schedule import Schedule, ScheduleSubmission
 from app.models.teacher import TeacherLesson, TeacherProfile
 from app.models.university import Faculty, Group, Subject, University
 from app.models.user import User
+from app.models.log import AdminBroadcast
 from app.services import admin_service
+from tests.conftest import TestingSessionLocal
 
 TOKEN = "123456:TEST-TOKEN"
 ADMIN_TG = 999888777
@@ -27,7 +29,9 @@ ADMIN_TG = 999888777
 def bot_settings(monkeypatch):
     monkeypatch.setattr(settings, "BOT_TOKEN", TOKEN)
     monkeypatch.setattr(settings, "ADMIN_IDS_RAW", str(ADMIN_TG))
+    monkeypatch.setattr(admin_service, "SESSION_FACTORY", TestingSessionLocal)  # xabar natijasi test bazasiga yoziladi
     admin_session._USED_LOGINS.clear()
+    admin_service.BROADCASTS.clear()
 
 
 class FakeBot:
@@ -402,6 +406,71 @@ async def test_broadcast_to_teachers_and_to_everyone(async_client, db_session, f
     assert fake_bot.sent[0][0] == 3001
     everyone = (await async_client.get("/api/v1/admin/broadcast/audiences?uni=0", headers=auth())).json()
     assert everyone["all"] == 8  # admin xabar olmaydi
+
+
+@pytest.mark.asyncio
+async def test_each_audience_has_its_own_history_saved_in_the_database(async_client, db_session, fake_bot):
+    d = await seed(db_session)
+    uni = d["uni"].id
+    sent = {}
+    for audience, text in (("nosch", "Jadval yuboring"), ("done", "Jadvalingiz tayyor"), ("nosch", "Yana eslatma")):
+        r = await async_client.post("/api/v1/admin/broadcast", json={"uni": uni, "audience": audience, "text": text}, headers=auth())
+        assert r.status_code == 200, r.text
+        assert await wait_for(lambda: admin_service.BROADCASTS[r.json()["id"]]["done"])
+        sent[text] = r.json()["id"]
+
+    def texts(resp):
+        return [h["text"] for h in resp.json()]
+
+    nosch = await async_client.get(f"/api/v1/admin/broadcast?uni={uni}&audience=nosch", headers=auth())
+    done = await async_client.get(f"/api/v1/admin/broadcast?uni={uni}&audience=done", headers=auth())
+    assert texts(nosch) == ["Jadval yuboring", "Yana eslatma"]  # faqat shu auditoriyaga yozilganlar, eskisi birinchi
+    assert texts(done) == ["Jadvalingiz tayyor"]
+    assert texts(await async_client.get(f"/api/v1/admin/broadcast?uni={uni}&audience=teachers", headers=auth())) == []
+    assert len((await async_client.get(f"/api/v1/admin/broadcast?uni={uni}", headers=auth())).json()) == 3
+    assert (await async_client.get("/api/v1/admin/broadcast?uni=0&audience=nosch", headers=auth())).json() == []  # boshqa ko'rinish
+    assert (await async_client.get(f"/api/v1/admin/broadcast?uni={uni}&audience=zzz", headers=auth())).status_code == 422
+
+    # natija bazada: server qayta ishga tushsa ham tarix va sanoq qoladi
+    admin_service.BROADCASTS.clear()
+    first = nosch.json()[0]
+    assert (first["total"], first["sent"], first["done"]) == (2, 2, True)
+    row = await db_session.get(AdminBroadcast, sent["Jadval yuboring"])
+    assert row.is_done and row.sent == 2 and row.audience == "nosch" and row.finished_at is not None
+    again = (await async_client.get(f"/api/v1/admin/broadcast/{sent['Jadval yuboring']}", headers=auth())).json()
+    assert again["sent"] == 2 and again["done"] is True
+    assert sorted(c for c, _, _ in fake_bot.sent) == [1001, 1002, 1002, 1003, 1003]  # "done" faqat Madinaga; "nosch" ikki marta Sardor va Azizga
+
+
+@pytest.mark.asyncio
+async def test_only_admin_review_waits_for_the_admin(async_client, db_session):
+    d = await seed(db_session)
+    fix = ScheduleSubmission(user_id=d["users"][2].id, university_id=d["uni"].id, group_id=d["g2"].id, image_file_id="x",
+                             status=SubmissionStatus.NEEDS_CORRECTION, ai_extracted_json="[]")
+    db_session.add(fix)
+    await db_session.commit()
+    base = f"/api/v1/admin/submissions?uni={d['uni'].id}"
+    rows = {r["status"]: r for r in (await async_client.get(base, headers=auth())).json()}
+    assert rows["ADMIN_REVIEW"]["open"] is True and rows["NEEDS_CORRECTION"]["open"] is False  # talaba tuzatishi kutilyapti
+    assert [r["status"] for r in (await async_client.get(base + "&status=NEEDS_CORRECTION", headers=auth())).json()] == ["NEEDS_CORRECTION"]
+    assert len((await async_client.get(base + "&status=APPROVED,ADMIN_REVIEW", headers=auth())).json()) == 2
+    assert (await async_client.get(base + "&status=NOPE", headers=auth())).status_code == 422
+    assert (await async_client.post(f"/api/v1/admin/submissions/{fix.id}/review", json={"action": "approve"}, headers=auth())).status_code == 409
+    assert (await async_client.get("/api/v1/admin/notifications", headers=auth())).json()["review"] == 1
+
+
+@pytest.mark.asyncio
+async def test_bell_lists_every_new_user(async_client, db_session):
+    d = await seed(db_session)
+    first = d["users"][0].id
+    n = (await async_client.get("/api/v1/admin/notifications?since=0", headers=auth())).json()
+    assert n["new"] == 0 and n["latest"] == d["users"][8].id  # since noma'lum: eski foydalanuvchilar "yangi" bo'lib yog'ilmaydi
+    assert n["items"][0]["name"] == "Yangi" and all(i["name"] != "Admin" for i in n["items"])  # admin o'zi haqida xabar olmaydi
+    after = (await async_client.get(f"/api/v1/admin/notifications?since={first}", headers=auth())).json()
+    assert after["new"] == 7
+    none = (await async_client.get(f"/api/v1/admin/notifications?since={n['latest']}", headers=auth())).json()
+    assert none["new"] == 0 and none["review"] == 1
+    assert (await async_client.get("/api/v1/admin/notifications")).status_code == 401
 
 
 @pytest.mark.asyncio

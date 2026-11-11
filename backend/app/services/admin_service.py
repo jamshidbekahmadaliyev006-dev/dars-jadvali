@@ -17,9 +17,10 @@ from sqlalchemy import String, and_, cast, exists, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.database import AsyncSessionLocal
 from app.core.logging import logger
 from app.models.enums import SubmissionStatus, TeacherStatus, UserRole
-from app.models.log import Announcement
+from app.models.log import AdminBroadcast, Announcement
 from app.models.schedule import Schedule, ScheduleSubmission
 from app.models.teacher import TeacherLesson, TeacherProfile
 from app.models.university import Faculty, Group, Subject, University
@@ -35,7 +36,8 @@ from app.services.schedule_service import (
 from app.services.university_service import GENERAL_FACULTY_NAME, name_key
 
 STAGES = ("done", "nosch", "nogr", "teacher", "pending", "students")
-OPEN_STATUSES = (SubmissionStatus.ADMIN_REVIEW, SubmissionStatus.NEEDS_CORRECTION, SubmissionStatus.AI_COMPLETED)
+# Faqat ADMIN_REVIEW adminni kutadi (botdagi navbat ham shunday). NEEDS_CORRECTION - talaba tuzatib qayta yuborishi kerak.
+OPEN_STATUSES = (SubmissionStatus.ADMIN_REVIEW,)
 
 
 def short_name(univ: University) -> str:
@@ -314,11 +316,14 @@ def _sub_select():
     )
 
 
-async def list_submissions(session: AsyncSession, uni: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+async def list_submissions(session: AsyncSession, uni: int = 0, statuses: Optional[List[SubmissionStatus]] = None,
+                           limit: int = 50) -> List[Dict[str, Any]]:
     stmt = _sub_select()
     if uni:
         stmt = stmt.where(ScheduleSubmission.university_id == uni)
-    rows = (await session.execute(stmt.order_by(ScheduleSubmission.id.desc()).limit(limit))).all()
+    if statuses:
+        stmt = stmt.where(ScheduleSubmission.status.in_(statuses))
+    rows = (await session.execute(stmt.order_by(ScheduleSubmission.id.desc()).limit(max(1, min(limit, 200))))).all()
     return [{
         "id": sub.id, "status": sub.status.value, "created": _fmt(sub.created_at, "%d.%m %H:%M"),
         "group": gname or "", "univ": short_name(univ) if univ else "", "user": first or "", "username": uname or "",
@@ -418,26 +423,46 @@ async def audience_users(session: AsyncSession, uni: int, audience: str) -> List
     return list((await session.execute(select(User).where(audience_filter(uni, audience)))).scalars().all())
 
 
-# Yuborish jarayonlari: e'lon ID -> holat. Server qayta ishga tushsa sanoq yo'qoladi, e'lon matni bazada qoladi.
+# Yuborish jarayonlari: jonli hisob xotirada (tez yangilanadi), natija bazada (admin_broadcasts) saqlanadi,
+# shuning uchun server qayta ishga tushsa ham tarix va sanoq yo'qolmaydi.
 BROADCASTS: Dict[int, Dict[str, Any]] = {}
+SESSION_FACTORY = AsyncSessionLocal
 
 
-async def run_broadcast(bot, announcement_id: int, recipients: List[int], text: str) -> None:
+async def _save_progress(job: Dict[str, Any]) -> None:
+    async with SESSION_FACTORY() as s:
+        row = await s.get(AdminBroadcast, job["id"])
+        if row:
+            row.sent, row.blocked, row.failed, row.is_done = job["sent"], job["blocked"], job["failed"], job["done"]
+            if job["done"]:
+                row.finished_at = datetime.now(pytz.utc)
+            await s.commit()
+
+
+async def run_broadcast(bot, broadcast_id: int, recipients: List[int], text: str) -> None:
     from app.bot.sender import BLOCKED, NOT_STARTED, OK, safe_send
 
-    job = BROADCASTS[announcement_id]
-    for telegram_id in recipients:
-        status, note = await safe_send(bot, telegram_id, text, parse_mode=None)  # admin matni HTML emas
-        if status == OK:
-            job["sent"] += 1
-        elif status in (BLOCKED, NOT_STARTED):
-            job["blocked"] += 1
-        else:
-            job["failed"] += 1
-            logger.warning(f"Admin broadcast {announcement_id}: {telegram_id} {status} {note}")
-        await asyncio.sleep(0.04)  # Telegram: sekundiga ~25 xabar
-    job["done"] = True
-    job["finished_at"] = time.time()
+    job = BROADCASTS[broadcast_id]
+    try:
+        for index, telegram_id in enumerate(recipients, start=1):
+            status, note = await safe_send(bot, telegram_id, text, parse_mode=None)  # admin matni HTML emas
+            if status == OK:
+                job["sent"] += 1
+            elif status in (BLOCKED, NOT_STARTED):
+                job["blocked"] += 1
+            else:
+                job["failed"] += 1
+                logger.warning(f"Admin broadcast {broadcast_id}: {telegram_id} {status} {note}")
+            if index % 10 == 0:
+                await _save_progress(job)
+            await asyncio.sleep(0.04)  # Telegram: sekundiga ~25 xabar
+    finally:
+        job["done"] = True
+        job["finished_at"] = time.time()
+        try:
+            await _save_progress(job)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Admin broadcast {broadcast_id}: could not save the result: {e}")
 
 
 async def start_broadcast(session: AsyncSession, bot, uni: int, audience: str, text: str) -> Dict[str, Any]:
@@ -445,29 +470,51 @@ async def start_broadcast(session: AsyncSession, bot, uni: int, audience: str, t
     univ_id = uni or await session.scalar(select(University.id).order_by(University.id).limit(1))
     if not univ_id:
         raise ValueError("Universitet yo'q")
-    ann = Announcement(university_id=univ_id, title=text[:100], content=text)
-    session.add(ann)
+    row = AdminBroadcast(university_id=uni, audience=audience, text=text, total=len(users))
+    session.add(Announcement(university_id=univ_id, title=text[:100], content=text))
+    session.add(row)
     await session.commit()
-    await session.refresh(ann)
-    BROADCASTS[ann.id] = {"id": ann.id, "audience": audience, "total": len(users), "sent": 0, "blocked": 0,
+    await session.refresh(row)
+    BROADCASTS[row.id] = {"id": row.id, "audience": audience, "total": len(users), "sent": 0, "blocked": 0,
                           "failed": 0, "done": False, "uni": uni}
-    asyncio.create_task(run_broadcast(bot, ann.id, [u.telegram_id for u in users], text))
-    return BROADCASTS[ann.id]
+    asyncio.create_task(run_broadcast(bot, row.id, [u.telegram_id for u in users], text))
+    return BROADCASTS[row.id]
 
 
-async def broadcast_history(session: AsyncSession, uni: int = 0, limit: int = 30) -> List[Dict[str, Any]]:
-    stmt = select(Announcement)
-    if uni:
-        stmt = stmt.where(Announcement.university_id == uni)
-    rows = (await session.execute(stmt.order_by(Announcement.id.desc()).limit(limit))).scalars().all()
-    out = []
-    for a in rows:
-        job = BROADCASTS.get(a.id)
-        out.append({"id": a.id, "text": a.content, "created": _fmt(a.created_at, "%d.%m %H:%M"),
-                    "audience": job["audience"] if job else "", "total": job["total"] if job else None,
-                    "sent": job["sent"] if job else None, "blocked": job["blocked"] if job else None,
-                    "failed": job["failed"] if job else None, "done": job["done"] if job else True})
-    return list(reversed(out))
+def _broadcast_out(row: AdminBroadcast) -> Dict[str, Any]:
+    job = BROADCASTS.get(row.id)  # yuborilayotgan bo'lsa jonli hisob
+    return {"id": row.id, "text": row.text, "created": _fmt(row.created_at, "%d.%m %H:%M"), "audience": row.audience,
+            "total": row.total, "sent": job["sent"] if job else row.sent, "blocked": job["blocked"] if job else row.blocked,
+            "failed": job["failed"] if job else row.failed, "done": job["done"] if job else bool(row.is_done)}
+
+
+async def broadcast_history(session: AsyncSession, uni: int = 0, audience: str = "", limit: int = 30) -> List[Dict[str, Any]]:
+    """Tanlangan universitet va AUDITORIYA uchun yuborilgan xabarlar (boshqa auditoriyaniki ko'rinmaydi)"""
+    stmt = select(AdminBroadcast).where(AdminBroadcast.university_id == uni)
+    if audience:
+        stmt = stmt.where(AdminBroadcast.audience == audience)
+    rows = (await session.execute(stmt.order_by(AdminBroadcast.id.desc()).limit(limit))).scalars().all()
+    return [_broadcast_out(r) for r in reversed(rows)]
+
+
+async def broadcast_job(session: AsyncSession, broadcast_id: int) -> Optional[Dict[str, Any]]:
+    row = await session.get(AdminBroadcast, broadcast_id)
+    return {**_broadcast_out(row), "uni": row.university_id} if row else None
+
+
+# ---------------- bildirishnomalar (qo'ng'iroqcha) ----------------
+async def notifications(session: AsyncSession, since: int = 0, limit: int = 15) -> Dict[str, Any]:
+    """Yangi qo'shilgan foydalanuvchilar (har bir odam alohida) va admin ko'rib chiqishi kerak so'rovlar soni"""
+    student = User.role == UserRole.USER
+    latest = await session.scalar(select(func.max(User.id)).where(student)) or 0
+    new = (await session.scalar(select(func.count(User.id)).where(student, User.id > since)) or 0) if since else 0
+    rows = (await session.execute(_user_select().where(student).order_by(User.id.desc()).limit(limit))).all()
+    items = [{"id": u.id, "name": " ".join(x for x in (u.first_name, u.last_name) if x) or str(u.telegram_id),
+              "username": u.username or "", "univ": short_name(un) if un else "", "lang": u.language_code or "uz",
+              "created": _fmt(u.created_at, "%d.%m %H:%M")} for u, g, f, un, h, t, p in rows]
+    review = await session.scalar(select(func.count(ScheduleSubmission.id)).where(
+        ScheduleSubmission.status.in_(OPEN_STATUSES))) or 0
+    return {"latest": latest, "new": new, "items": items, "review": review}
 
 
 def current_week() -> str:

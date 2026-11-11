@@ -18,6 +18,22 @@ class Announcement(Base, TimestampMixin):
     is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
+class AdminBroadcast(Base, TimestampMixin):
+    """Admin saytdan yuborilgan xabar: kimga (auditoriya), nechtasiga yetdi. Tarix har bir auditoriya uchun alohida ko'rsatiladi."""
+    __tablename__ = "admin_broadcasts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    university_id: Mapped[int] = mapped_column(Integer, index=True, default=0, nullable=False)  # 0 = barcha universitetlar
+    audience: Mapped[str] = mapped_column(String(20), index=True, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    sent: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    blocked: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_done: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class NotificationLog(Base, TimestampMixin):
     """Yuborilgan bildirishnomalar tarixi (takroriy xabarlarning oldini olish uchun)"""
     __tablename__ = "notification_logs"
