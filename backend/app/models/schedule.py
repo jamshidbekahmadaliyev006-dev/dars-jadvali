@@ -76,6 +76,8 @@ class Schedule(Base, TimestampMixin):
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Fan kodi jadvalda yozilganidek to'liq (BGH001-3, PHY018-L2): talabaga fan nomi oldida ko'rsatiladi
+    code: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
 
     # Relationships
     group: Mapped["Group"] = relationship("Group", back_populates="schedules")

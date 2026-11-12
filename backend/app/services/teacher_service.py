@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.enums import DayOfWeek, LessonType, TeacherStatus, WeekParity
 from app.models.teacher import TeacherLesson, TeacherProfile
 from app.models.university import University
-from app.services.schedule_service import normalize_subject_name, resolve_day_of_week, resolve_week_parity
+from app.services.schedule_service import normalize_subject_name, resolve_day_of_week, resolve_week_parity, split_subject_code
 from app.services.university_service import UniversityService, pretty_group_name, pretty_university_name
 
 
@@ -80,6 +80,7 @@ class TeacherService:
                 start_time=start,
                 end_time=end,
                 subject=normalize_subject_name(subject)[0][:300],
+                code=split_subject_code(subject)[2],
                 # Birgalikdagi ma'ruza: "712-24, 732_24" -> "712-24, 732-24"
                 group_name=", ".join(pretty_group_name(g) for g in re.split(r"[,;]+", group) if g.strip())[:200] or None,
                 room=(_clean_room(item) or None),

@@ -100,9 +100,21 @@ def schedule_summary(schedules: Sequence[Any], lang: str = DEFAULT_LANG) -> str:
     return format_counts(len(subject_names(schedules)), len(schedules), lang)
 
 
+def subject_label(name: Optional[str], code: Optional[str], html: bool = True) -> str:
+    """Fan nomi oldida to'liq kodi: 'BGH001-3 Fan nomi' (kod bo'lmasa faqat nom)"""
+    name = esc(name) if name else "—"
+    if not code:
+        return name
+    return f"<code>{esc(code)}</code> {name}"
+
+
+def lesson_code(s: Any) -> Optional[str]:
+    return getattr(s, "code", None) or (getattr(s.subject, "code", None) if getattr(s, "subject", None) else None)
+
+
 def _lesson_line(s: Any, lang: str, show_parity: bool = False) -> str:
     # Faqat boshlanish vaqti: rasmlarda tugash vaqti yozilmaydi, AI uni taxmin qiladi
-    parts = [f"<b>{esc(s.start_time)}</b> — {esc(s.subject.name) if s.subject else '—'}"]
+    parts = [f"<b>{esc(s.start_time)}</b> — {subject_label(s.subject.name if s.subject else None, lesson_code(s))}"]
     if s.room:
         parts.append(esc(s.room.number))
     if s.teacher:
@@ -183,7 +195,7 @@ def format_reminder(
         header,
         "",
         f"📅 {format_date(lesson_date or current_local_date(), lang, with_year=True)}",
-        f"📚 {esc(schedule.subject.name) if schedule.subject else '—'}",
+        f"📚 {subject_label(schedule.subject.name if schedule.subject else None, lesson_code(schedule))}",
         f"🕒 {esc(schedule.start_time)}{end}",
     ]
     if schedule.room:
@@ -195,7 +207,7 @@ def format_reminder(
 
 # --- O'qituvchi jadvali ---
 def _teacher_line(lesson: Any, lang: str, show_parity: bool = False) -> str:
-    parts = [f"<b>{esc(lesson.start_time)}–{esc(lesson.end_time)}</b> — {esc(lesson.subject)}"]
+    parts = [f"<b>{esc(lesson.start_time)}–{esc(lesson.end_time)}</b> — {subject_label(lesson.subject, getattr(lesson, 'code', None))}"]
     if lesson.group_name:
         parts.append(f"👥 {esc(lesson.group_name)}")
     if lesson.room:
@@ -238,7 +250,7 @@ def format_teacher_reminder(lesson: Any, minutes_left: int, lang: str, lesson_da
         header,
         "",
         f"📅 {format_date(lesson_date, lang, with_year=True)}",
-        f"📚 {esc(lesson.subject)}",
+        f"📚 {subject_label(lesson.subject, getattr(lesson, 'code', None))}",
         f"🕒 {esc(lesson.start_time)}–{esc(lesson.end_time)}",
     ]
     if lesson.group_name:

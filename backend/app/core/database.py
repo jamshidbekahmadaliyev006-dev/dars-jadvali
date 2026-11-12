@@ -59,6 +59,8 @@ def _add_missing_columns(sync_conn) -> None:
     wanted = {
         "admin_broadcasts": [("kind", "VARCHAR(10) NOT NULL DEFAULT 'msg'")],
         "users": [("plan_only", "BOOLEAN NOT NULL DEFAULT 0")],
+        "schedules": [("code", "VARCHAR(30)")],
+        "teacher_lessons": [("code", "VARCHAR(30)")],
         "personal_events": [
             ("place", "VARCHAR(255)"), ("has_time", "BOOLEAN NOT NULL DEFAULT 1"),
             ("remind1_sent", "BOOLEAN NOT NULL DEFAULT 0"), ("remind2_sent", "BOOLEAN NOT NULL DEFAULT 0"),

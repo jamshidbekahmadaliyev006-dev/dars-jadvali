@@ -61,7 +61,17 @@ def resolve_day_of_week(raw: Optional[str]) -> Optional[DayOfWeek]:
     return None
 
 
-_SUBJECT_CODE_RE = re.compile(r"[\s/\-–]*\b([A-Z]{2,}\d{2,})(?:-\d+)?\s*$")
+_SUBJECT_CODE_RE = re.compile(r"[\s/\-–]*\b([A-Z]{2,}\d{2,})(-[A-Za-z]?\d+)?\s*$")
+
+
+def split_subject_code(raw: str) -> Tuple[str, Optional[str], Optional[str]]:
+    """(toza nom, asosiy kod, TO'LIQ kod). "Fizika 1 (6 kr)-PHY018-L2" -> ("Fizika 1", "PHY018", "PHY018-L2").
+    Asosiy kod fanni aniqlaydi (PHY018 va PHY018-2 bitta fan), to'liq kod talabaga ko'rsatiladi."""
+    text = (raw or "").strip()
+    match = _SUBJECT_CODE_RE.search(text)
+    full = (match.group(1) + (match.group(2) or "")) if match else None
+    name, base = normalize_subject_name(raw)
+    return name, base, full
 
 
 def normalize_subject_name(raw: str) -> Tuple[str, Optional[str]]:
@@ -449,7 +459,7 @@ class ScheduleService:
                 # Noto'liq yoki tanilmagan qator - xavfsiz tarzda o'tkazib yuboramiz
                 continue
 
-            clean_name, subject_code = normalize_subject_name(subject_name)
+            clean_name, subject_code, full_code = split_subject_code(subject_name)
             clean_name = canonical.get(subject_code, clean_name) if subject_code else clean_name
             subject = await ScheduleService._get_or_create_subject(
                 session, submission.university_id, clean_name, subject_code
@@ -494,6 +504,7 @@ class ScheduleService:
                 sched.room_id = room.id if room else sched.room_id
                 sched.end_time = end_time
                 sched.lesson_type = lesson_type_enum
+                sched.code = full_code or sched.code
                 sched.is_active = True
             else:
                 sched = Schedule(
@@ -507,6 +518,7 @@ class ScheduleService:
                     end_time=end_time,
                     lesson_type=lesson_type_enum,
                     week_parity=week_parity,
+                    code=full_code,
                 )
                 session.add(sched)
             created.append(sched)

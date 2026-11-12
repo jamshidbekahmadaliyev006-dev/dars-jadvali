@@ -35,6 +35,7 @@ class TeacherLesson(Base, TimestampMixin):
     start_time: Mapped[str] = mapped_column(String(5), nullable=False)
     end_time: Mapped[str] = mapped_column(String(5), nullable=False)
     subject: Mapped[str] = mapped_column(String(300), nullable=False)
+    code: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)  # to'liq fan kodi (BGH001-3)
     group_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     room: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     lesson_type: Mapped[LessonType] = mapped_column(
