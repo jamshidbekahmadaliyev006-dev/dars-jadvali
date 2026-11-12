@@ -8,7 +8,7 @@ import pytz
 from aiogram import F, Router
 
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
@@ -25,7 +25,7 @@ from app.bot.keyboards.inline import (
     week_days_keyboard,
 )
 from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
-from app.bot.states import RegistrationStates, ReminderStates
+from app.bot.states import AnnouncementStates, ContactStates, RegistrationStates, ReminderStates
 from app.bot.text_utils import (
     schedule_issues,
     show_typing,
@@ -251,7 +251,7 @@ async def _notify_admins(
 
 
 # --- Dars jadvali rasmini qabul qilish ---
-@router.message(F.photo)
+@router.message(F.photo, ~StateFilter(ContactStates, AnnouncementStates))
 async def handle_schedule_photo_upload(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
     lang = lang_of(current_user)
     if not current_user.university_id or not current_user.group_id:
@@ -269,7 +269,7 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
 
 
 # Rasm fayl qilib yuborilsa Telegram uni siqmaydi - mayda yozuvlar (bino, xona) aniqroq o'qiladi
-@router.message(F.document.mime_type.startswith("image/"))
+@router.message(F.document.mime_type.startswith("image/"), ~StateFilter(ContactStates, AnnouncementStates))
 async def handle_schedule_document_upload(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
     lang = lang_of(current_user)
     if not current_user.university_id or not current_user.group_id:
@@ -671,7 +671,8 @@ async def handle_profile(message: Message, current_user: User, session: AsyncSes
 @router.callback_query(F.data == "profile_group")
 async def handle_profile_change_group(query: CallbackQuery, state: FSMContext, current_user: User, session: AsyncSession):
     await query.answer()
-    await start_registration(query.message, state, session, lang_of(current_user))
+    from app.bot.handlers.registration import start_group_change
+    await start_group_change(query.message, state, session, current_user, lang_of(current_user))
 
 
 @router.callback_query(F.data == "profile_lang")

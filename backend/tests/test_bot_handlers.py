@@ -567,3 +567,85 @@ async def test_admin_has_both_roles_student_mode_and_back():
     await handle_switch_back_to_admin(msg, current_user=admin)
     back_kb = [b.text for row in msg.answer.call_args.kwargs["reply_markup"].keyboard for b in row]
     assert "📈 Statistika" in back_kb
+
+
+# ---------------- murojaat / e'lon rasmi jadval emas; guruhni almashtirish ----------------
+def _photo_message(caption: str = "", user_id: int = 12345):
+    message = make_mock_message("", user_id)
+    message.text = None
+    message.caption = caption
+    message.photo = [MagicMock(file_id="small"), MagicMock(file_id="BIG")]
+    message.document = None
+    message.bot = MagicMock()
+    message.bot.send_photo = AsyncMock()
+    message.bot.send_message = AsyncMock()
+    return message
+
+
+class _State:
+    def __init__(self, data=None):
+        self.data, self.state, self.cleared = dict(data or {}), None, False
+
+    async def get_data(self):
+        return self.data
+
+    async def update_data(self, **kw):
+        self.data.update(kw)
+
+    async def set_state(self, s):
+        self.state = s
+
+    async def clear(self):
+        self.cleared, self.data, self.state = True, {}, None
+
+
+@pytest.mark.asyncio
+async def test_photo_in_an_appeal_goes_to_the_admin_not_to_the_schedule_reader(db_session: AsyncSession, monkeypatch):
+    from app.bot.handlers import contact
+    from app.core.config import settings
+
+    monkeypatch.setattr(type(settings), "admin_id_list", property(lambda self: [777]))
+    student = User(id=5, telegram_id=12345, first_name="Aziz", username="aziz", role=UserRole.USER, is_active=True, language_chosen=True)
+    msg = _photo_message("Jadvalda xato bor")
+    state = _State()
+    await contact.handle_contact_photo(msg, state, student, db_session)
+    msg.bot.send_photo.assert_awaited_once()
+    kw = msg.bot.send_photo.await_args.kwargs
+    assert kw["chat_id"] == 777 and kw["photo"] == "BIG" and "Jadvalda xato bor" in kw["caption"] and "aziz" in kw["caption"]
+    assert state.cleared  # murojaat tugadi, jadval sifatida o'qilmadi
+    msg.answer.assert_awaited_once()
+
+
+def test_schedule_photo_handlers_ignore_photos_sent_in_appeal_or_announcement_mode():
+    from app.bot.handlers import teacher, user_menu
+
+    for module in (user_menu, teacher):
+        photo_handlers = [h for h in module.router.message.handlers if h.callback.__name__ in (
+            "handle_schedule_photo_upload", "handle_schedule_document_upload", "teacher_photo", "teacher_document")]
+        assert len(photo_handlers) == 2
+        for handler in photo_handlers:
+            assert "_InvertFilter" in repr([f.callback for f in handler.filters]), handler.callback.__name__
+
+
+@pytest.mark.asyncio
+async def test_changing_group_asks_only_the_group(db_session: AsyncSession):
+    from app.bot.handlers.registration import start_group_change
+    from app.bot.states import RegistrationStates
+    from app.models.university import Faculty
+    from app.services.university_service import UniversityService
+
+    univ, group = await UniversityService.register_university_and_group(db_session, "TATU", "712-24", faculty_name="Kiberxavfsizlik")
+    user = User(id=9, telegram_id=1, first_name="A", role=UserRole.USER, is_active=True, language_chosen=True,
+                university_id=univ.id, faculty_id=group.faculty_id, group_id=group.id)
+    msg = make_mock_message("x")
+    state = _State()
+    await start_group_change(msg, state, db_session, user, "uz")
+    assert state.state == RegistrationStates.waiting_group
+    assert state.data["university_name"] == univ.name and state.data["faculty_name"] == "Kiberxavfsizlik"
+    assert "Yangi guruh" in msg.answer.await_args.args[0]
+
+    # universiteti yo'q foydalanuvchi - odatdagi ro'yxatdan o'tish
+    fresh = User(id=10, telegram_id=2, first_name="B", role=UserRole.USER, is_active=True, language_chosen=True)
+    state2, msg2 = _State(), make_mock_message("x")
+    await start_group_change(msg2, state2, db_session, fresh, "uz")
+    assert state2.state == RegistrationStates.waiting_university

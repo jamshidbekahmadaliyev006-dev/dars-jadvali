@@ -1,10 +1,12 @@
 from aiogram import F, Router
+from aiogram.filters import StateFilter
 
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.i18n import TEXTS, labels, lang_of, t
 from app.bot.keyboards.inline import contact_reply_keyboard
+from app.bot.sender import OK, safe_send
 from app.bot.states import ContactStates
 from app.bot.text_utils import esc, show_typing
 from app.core.config import settings
@@ -70,6 +72,64 @@ async def handle_contact_message(message: Message, state: FSMContext, current_us
 
     await state.clear()
     await message.answer(t(lang, "contact_sent") if delivered else t(lang, "contact_no_admin"))
+
+
+def _photo_id(message: Message):
+    """Rasm (siqilgan yoki fayl ko'rinishida) bo'lsa file_id"""
+    if message.photo:
+        return message.photo[-1].file_id
+    if message.document and (message.document.mime_type or "").startswith("image/"):
+        return message.document.file_id
+    return None
+
+
+@router.message(ContactStates.waiting_message, F.photo | F.document)
+async def handle_contact_photo(message: Message, state: FSMContext, current_user: User, session: AsyncSession):
+    """Murojaatga rasm biriktirilsa - bu jadval emas: rasm izoh bilan adminga ketadi"""
+    lang = lang_of(current_user)
+    file_id = _photo_id(message)
+    if not file_id:
+        await message.answer(t(lang, "contact_prompt"), parse_mode="HTML")
+        return
+    if not settings.admin_id_list:
+        await state.clear()
+        await message.answer(t(lang, "contact_no_admin"))
+        return
+    caption = (message.caption or "").strip()
+    username = f" (@{esc(current_user.username)})" if current_user.username else ""
+    who = f"{esc(current_user.first_name)}{username}"
+    delivered = 0
+    for admin_id in settings.admin_id_list:
+        admin_lang = lang_of(await UserService.get_by_telegram_id(session, admin_id))
+        status, note = await safe_send(
+            message.bot, admin_id, t(admin_lang, "contact_new", who=who, text=esc(caption[:700]) or "📷"),
+            photo=file_id, parse_mode="HTML", reply_markup=contact_reply_keyboard(current_user.telegram_id, admin_lang),
+        )
+        if status == OK:
+            delivered += 1
+        else:
+            logger.error(f"Failed to deliver contact photo to admin {admin_id}: {status} {note}")
+    await state.clear()
+    await message.answer(t(lang, "contact_sent") if delivered else t(lang, "contact_no_admin"))
+
+
+@router.message(ContactStates.waiting_admin_reply, F.photo | F.document)
+async def handle_admin_reply_photo(message: Message, state: FSMContext, current_user: User, session: AsyncSession):
+    lang = lang_of(current_user)
+    target_id = (await state.get_data()).get("reply_to")
+    file_id = _photo_id(message)
+    if not file_id or not target_id:
+        await state.clear()
+        await message.answer(t(lang, "contact_cancelled"))
+        return
+    student = await UserService.get_by_telegram_id(session, target_id)
+    status, note = await safe_send(
+        message.bot, target_id,
+        t(lang_of(student), "contact_from_admin", text=esc((message.caption or "").strip()[:700]) or "📷"),
+        photo=file_id, parse_mode="HTML",
+    )
+    await message.answer(t(lang, "contact_reply_sent") if status == OK else t(lang, "contact_reply_failed"))
+    await state.clear()
 
 
 @router.callback_query(F.data.startswith("contact_reply_"))

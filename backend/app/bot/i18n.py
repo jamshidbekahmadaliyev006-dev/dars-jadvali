@@ -323,6 +323,10 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "uz": "👥 <b>Guruhingizni yozing</b>\n\nMasalan: 712-24",
         "ru": "👥 <b>Напишите вашу группу</b>\n\nНапример: 712-24",
     },
+    "ask_group_change": {
+        "uz": "👥 <b>Yangi guruhingizni yozing</b>\n\nMasalan: 712-24\n\n🏛 Universitet o'zgarmaydi: {univ}. Universitet yoki fakultet ham xato bo'lsa, /register yuboring.",
+        "ru": "👥 <b>Напишите новую группу</b>\n\nНапример: 712-24\n\n🏛 Университет не меняется: {univ}. Если неверны университет или факультет — отправьте /register.",
+    },
     "bad_university": {"uz": "❗ Iltimos, to'g'ri ma'lumot kiriting.\nUniversitetingizning haqiqiy nomini yozing. Masalan: TATU yoki Toshkent axborot texnologiyalari universiteti", "ru": '❗ Пожалуйста, введите верные данные.\nНапишите настоящее название университета. Например: ТУИТ или Ташкентский университет информационных технологий'},
     "bad_faculty": {"uz": "❗ Iltimos, to'g'ri ma'lumot kiriting.\nFakultetingizning haqiqiy nomini yozing. Masalan: Kiberxavfsizlik", "ru": '❗ Пожалуйста, введите верные данные.\nНапишите настоящее название факультета. Например: Кибербезопасность'},
     "faculty_write_full": {

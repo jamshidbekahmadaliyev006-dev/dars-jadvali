@@ -483,10 +483,11 @@ async def handle_announcement_send(query: CallbackQuery, current_user: User, ses
         return
 
     data = await state.get_data()
-    text = data.get("announcement_text")
+    text = data.get("announcement_text") or ""
+    photo = data.get("announcement_photo")
     target = data.get("announcement_target", "all")
     await state.clear()
-    if not text:
+    if not text and not photo:
         await query.answer(t(lang, "announce_missing"), show_alert=True)
         return
 
@@ -500,7 +501,7 @@ async def handle_announcement_send(query: CallbackQuery, current_user: User, ses
     if not univ_id:
         univ_id = await session.scalar(select(University.id).order_by(University.id).limit(1))
     if univ_id:
-        session.add(Announcement(university_id=univ_id, title=text[:100], content=text))
+        session.add(Announcement(university_id=univ_id, title=(text or "📷")[:100], content=text or "📷"))
         await session.commit()
 
     sent = 0
@@ -509,7 +510,7 @@ async def handle_announcement_send(query: CallbackQuery, current_user: User, ses
     for student in recipients:
         status, note = await safe_send(
             query.bot, student.telegram_id,
-            t(lang_of(student), "announce_header", text=esc(text)), parse_mode="HTML",
+            t(lang_of(student), "announce_header", text=esc(text)), photo=photo, parse_mode="HTML",
         )
         if status == OK:
             sent += 1
@@ -543,12 +544,39 @@ async def handle_announcement_text(message: Message, current_user: User, session
     text = (message.text or "").strip()
     target = (await state.get_data()).get("announcement_target", "all")
     recipients = await _announcement_recipients(session, target)
-    await state.update_data(announcement_text=text)
+    await state.update_data(announcement_text=text, announcement_photo=None)
     await message.answer(
         t(lang, "announce_preview", text=esc(text), count=len(recipients)) + NL + NL + await _audience_label(session, target, lang),
         parse_mode="HTML",
         reply_markup=announcement_confirm_keyboard(lang),
     )
+
+
+@router.message(AnnouncementStates.waiting_text, F.photo | F.document)
+async def handle_announcement_photo(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
+    """E'longa rasm biriktirilsa - bu jadval emas: rasm (izoh bilan) e'lon bo'lib ketadi"""
+    if not is_admin_check(current_user):
+        await state.clear()
+        return
+    lang = lang_of(current_user)
+    if message.photo:
+        file_id = message.photo[-1].file_id
+    elif message.document and (message.document.mime_type or "").startswith("image/"):
+        file_id = message.document.file_id
+    else:
+        await message.answer(t(lang, "announce_prompt_to", audience=await _audience_label(
+            session, (await state.get_data()).get("announcement_target", "all"), lang), count=len(await _announcement_recipients(
+                session, (await state.get_data()).get("announcement_target", "all")))), parse_mode="HTML")
+        return
+    caption = (message.caption or "").strip()
+    target = (await state.get_data()).get("announcement_target", "all")
+    recipients = await _announcement_recipients(session, target)
+    await state.update_data(announcement_text=caption, announcement_photo=file_id)
+    preview = t(lang, "announce_preview", text=esc(caption) or "📷", count=len(recipients)) + NL + NL + await _audience_label(session, target, lang)
+    status, note = await safe_send(
+        message.bot, message.chat.id, preview, photo=file_id, parse_mode="HTML", reply_markup=announcement_confirm_keyboard(lang))
+    if status != OK:
+        await message.answer(preview, parse_mode="HTML", reply_markup=announcement_confirm_keyboard(lang))
 
 
 # --- Bloklash ---

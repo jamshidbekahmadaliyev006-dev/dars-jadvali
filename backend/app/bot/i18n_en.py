@@ -174,6 +174,7 @@ EN = {
     'announce_sending': '⏳ Sending announcement...',
     'announce_done': '✅ Announcement sent: {sent}. Failed: {failed}.',
     'announce_preview': '📢 <b>Preview</b>\n\n{text}\n\n<i>Will be sent to {count} students.</i>',
+    'ask_group_change': '👥 <b>Type your new group</b>\n\nFor example: 712-24\n\n🏛 University stays: {univ}. If the university or faculty is wrong too, send /register.',
     'announce_header': '📢 <b>Announcement</b>\n\n{text}',
     'schedule_text_incomplete': '✍️ This is not a complete timetable. Write at least <b>3 lessons</b> (day, time, and subject on each line) or send a <b>photo</b> of the schedule.\n\n<code>Monday 08:00-09:30 Math A-327</code>\n<code>Monday 09:30-11:00 Physics A-210</code>\n<code>Tuesday 08:00-09:30 English B-105</code>',
     'announce_fail_blocked': '🚫 Blocked the bot ({n}): {names}',

@@ -21,7 +21,7 @@ from app.bot.album import collect_album
 from app.bot.i18n import DAY_LABELS, NL, TEXTS, format_lesson_count, format_minutes, labels, lang_of, t
 from app.bot.keyboards.inline import week_days_keyboard
 from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
-from app.bot.states import TeacherStates
+from app.bot.states import AnnouncementStates, ContactStates, TeacherStates
 from app.bot.text_utils import (
     esc,
     format_date,
@@ -423,7 +423,7 @@ async def _download(message: Message, file_id: str) -> bytes:
     return (await message.bot.download_file(info.file_path)).read()
 
 
-@router.message(F.photo, ApprovedTeacher())
+@router.message(F.photo, ApprovedTeacher(), ~StateFilter(ContactStates, AnnouncementStates))
 async def teacher_photo(message: Message, state: FSMContext, current_user: User, session: AsyncSession, teacher: TeacherProfile):
     file_ids = await collect_album(message, message.photo[-1].file_id)
     if file_ids is None:
@@ -433,7 +433,7 @@ async def teacher_photo(message: Message, state: FSMContext, current_user: User,
     await _save_teacher_schedule(message, current_user, teacher, session, image=images[0], images=images)
 
 
-@router.message(F.document.mime_type.startswith("image/"), ApprovedTeacher())
+@router.message(F.document.mime_type.startswith("image/"), ApprovedTeacher(), ~StateFilter(ContactStates, AnnouncementStates))
 async def teacher_document(message: Message, state: FSMContext, current_user: User, session: AsyncSession, teacher: TeacherProfile):
     if (message.document.file_size or 0) > 15 * 1024 * 1024:
         await message.answer(t(lang_of(current_user), "file_too_big"))

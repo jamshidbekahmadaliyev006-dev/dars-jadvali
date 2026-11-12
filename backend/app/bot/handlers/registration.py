@@ -11,7 +11,7 @@ from app.bot.text_utils import esc, format_weekly_schedule, looks_like_full_sche
 from app.models.enums import UserRole
 from app.models.user import User
 from app.services.schedule_service import ScheduleService
-from app.models.university import Faculty
+from app.models.university import Faculty, University
 from app.services.name_validation import check_faculty_name, check_group_name, check_university_name, resolve_faculty_name
 from app.services.university_service import GENERAL_FACULTY_NAME, UniversityService
 
@@ -43,6 +43,20 @@ async def start_registration(
     """
     await state.set_state(RegistrationStates.waiting_university)
     await message.answer(t(lang, "ask_university"), parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
+
+
+async def start_group_change(message: Message, state: FSMContext, session: AsyncSession, user: User, lang: str) -> None:
+    """Guruhni almashtirish: universitet va fakultet saqlanadi, faqat yangi guruh so'raladi"""
+    univ = await session.get(University, user.university_id) if user.university_id else None
+    if not univ:
+        await start_registration(message, state, session, lang)
+        return
+    faculty = await session.get(Faculty, user.faculty_id) if user.faculty_id else None
+    faculty_name = faculty.name if faculty and faculty.name != GENERAL_FACULTY_NAME else None
+    await state.clear()
+    await state.update_data(university_name=univ.name, faculty_name=faculty_name)
+    await state.set_state(RegistrationStates.waiting_group)
+    await message.answer(t(lang, "ask_group_change", univ=esc(univ.name)), parse_mode="HTML")
 
 
 @router.message(RegistrationStates.waiting_university, F.text)
