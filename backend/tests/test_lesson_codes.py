@@ -36,9 +36,10 @@ def test_code_goes_in_front_of_the_subject_everywhere():
     assert "Fizika 1 PHY018-L2 · A-327" in _lesson_line(s, "uz")          # nom, kod, xona: oddiy matn
     assert "📚 Fizika 1 PHY018-L2" in format_reminder(s, 15, "uz")
     assert "<code>" not in _lesson_line(s, "uz") and "<code>" not in format_reminder(s, 15, "uz")   # bosganda nusxalanmaydi
-    # to'liq kod saqlanmagan eski dars: fan kodi ko'rsatiladi; kodsiz fan - faqat nom
+    # to'liq kod noma'lum eski dars: faqat nom (fanning asosiy kodi ko'rsatilmaydi - u ma'ruza degan xato taassurot beradi)
     old = NS(start_time="08:30", subject=NS(name="Fizika 1", code="PHY018"), code=None, room=None, teacher=None, week_parity=WeekParity.ALL)
-    assert "Fizika 1 PHY018" in _lesson_line(old, "uz")
+    assert "PHY018" not in _lesson_line(old, "uz") and "Fizika 1" in _lesson_line(old, "uz")
+    assert "PHY018" not in format_reminder(old, 15, "uz")
     nocode = NS(start_time="08:30", subject=NS(name="Xorijiy til", code=None), code=None, room=None, teacher=None, week_parity=WeekParity.ALL)
     assert "<code>" not in _lesson_line(nocode, "uz") and "Xorijiy til" in _lesson_line(nocode, "uz")
     assert subject_label("A<b>", "X1") == "A&lt;b&gt; X1"                       # HTML buzilmaydi

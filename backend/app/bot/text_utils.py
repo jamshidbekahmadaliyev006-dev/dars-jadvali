@@ -115,7 +115,9 @@ def raw_subject_label(raw: Optional[str]) -> str:
 
 
 def lesson_code(s: Any) -> Optional[str]:
-    return getattr(s, "code", None) or (getattr(s.subject, "code", None) if getattr(s, "subject", None) else None)
+    """Darsning o'z to'liq kodi (jadvalda yozilganidek). Fanning asosiy kodiga TAYANMAYMIZ: qo'shimchasi noma'lum
+    bo'lsa, 'INS001' ma'ruza degan xato taassurot bermasin - kod yo'q bo'lsa faqat fan nomi ko'rinadi"""
+    return getattr(s, "code", None) or None
 
 
 def _lesson_line(s: Any, lang: str, show_parity: bool = False) -> str:
