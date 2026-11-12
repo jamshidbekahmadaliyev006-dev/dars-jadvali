@@ -84,6 +84,8 @@ def role_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=t(lang, "btn_role_student"), callback_data="role_student"),
         InlineKeyboardButton(text=t(lang, "btn_role_teacher"), callback_data="role_teacher"),
+    ], [
+        InlineKeyboardButton(text=t(lang, "btn_role_other"), callback_data="role_other"),
     ]])
 
 

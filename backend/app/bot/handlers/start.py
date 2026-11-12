@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.handlers.registration import start_registration
 from app.bot.i18n import labels, lang_of, t
 from app.bot.keyboards.inline import language_keyboard
-from app.bot.keyboards.reply import get_admin_main_keyboard, get_user_main_keyboard
+from app.bot.keyboards.reply import get_admin_main_keyboard, get_plan_keyboard, get_user_main_keyboard
 from app.bot.i18n import format_minutes
 from app.bot.keyboards.inline import week_days_keyboard
 from app.bot.text_utils import esc, format_weekly_schedule
@@ -39,8 +39,15 @@ async def _show_welcome(message: Message, state: FSMContext, user: User, session
         await message.answer(t(lang, "teacher_still_pending"))
         return
 
+    if not user.group_id and user.plan_only and session is not None:
+        # "Boshqa" foydalanuvchi: talaba emas, faqat rejalar
+        from app.bot.handlers.plans import show_plans
+        await message.answer(t(lang, "role_other_done"), parse_mode="HTML", reply_markup=get_plan_keyboard(lang))
+        await show_plans(message, user, session, lang)
+        return
+
     if not user.group_id:
-        # Yangi foydalanuvchi: avval kimligini so'raymiz (talaba yoki o'qituvchi)
+        # Yangi foydalanuvchi: avval kimligini so'raymiz (talaba, o'qituvchi yoki boshqa)
         from app.bot.handlers.teacher import role_keyboard
         # Faqat qisqa "Tanlang:" va ikkita tugma - ortiqcha matn yo'q
         await message.answer(t(lang, "choose_role"), reply_markup=role_keyboard(lang))
@@ -110,8 +117,10 @@ async def handle_language_choice(query: CallbackQuery, state: FSMContext, curren
     await query.answer()
 
     # Til keyin almashtirilganda: hech narsa chiqarilmaydi, faqat "qabul qilindi" va menyu yangi tilda
-    if was_chosen and current_user.group_id or (was_chosen and await TeacherService.get_approved(session, current_user.id)):
-        kb = get_admin_main_keyboard(lang) if current_user.role == UserRole.ADMIN else get_user_main_keyboard(lang)
+    plan_user = bool(current_user.plan_only and not current_user.group_id)
+    if was_chosen and (current_user.group_id or plan_user) or (was_chosen and await TeacherService.get_approved(session, current_user.id)):
+        kb = get_admin_main_keyboard(lang) if current_user.role == UserRole.ADMIN else (
+            get_plan_keyboard(lang) if plan_user else get_user_main_keyboard(lang))
         try:
             await query.message.delete()
         except Exception:

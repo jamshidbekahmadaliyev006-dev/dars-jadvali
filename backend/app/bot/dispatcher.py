@@ -2,6 +2,7 @@ from aiogram import Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from app.bot.handlers.admin_menu import router as admin_router
 from app.bot.handlers.contact import router as contact_router
+from app.bot.handlers.plans import router as plans_router
 from app.bot.handlers.registration import router as registration_router
 from app.bot.handlers.start import router as start_router
 from app.bot.handlers.teacher import router as teacher_router
@@ -28,6 +29,7 @@ def setup_dispatcher() -> Dispatcher:
     dp.include_router(start_router)
     dp.include_router(registration_router)
     dp.include_router(contact_router)
+    dp.include_router(plans_router)
     dp.include_router(teacher_router)
     dp.include_router(admin_router)
     dp.include_router(user_router)

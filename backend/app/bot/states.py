@@ -25,6 +25,11 @@ class AnnouncementStates(StatesGroup):
     waiting_text = State()
 
 
+class PlanStates(StatesGroup):
+    """"Mening rejalarim": rasm yoki matn kutilmoqda"""
+    waiting_input = State()
+
+
 class TeacherStates(StatesGroup):
     """O'qituvchi ro'yxatdan o'tishi va jadval yuborishi"""
     waiting_university = State()

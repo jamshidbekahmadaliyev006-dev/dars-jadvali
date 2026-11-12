@@ -293,3 +293,53 @@ async def _process_teacher_lessons(session: AsyncSession, today_enum: DayOfWeek,
             await session.commit()
         except Exception as e:
             logger.error(f"Error checking teacher lesson {lesson.id}: {e}")
+
+
+async def check_and_send_event_reminders() -> None:
+    """Har 60 soniyada: "Mening rejalarim"dagi voqealar uchun eslatma (1 kun oldin, 1 soat oldin / vaqtsiz bo'lsa o'sha kuni)"""
+    from datetime import timedelta
+    from app.bot.sender import safe_send
+    from app.bot.text_utils import esc
+    from app.bot.i18n import t
+    from app.models.task import PersonalEvent
+    from app.services.plan_service import format_when, reminder_due
+
+    bot = get_bot()
+    if not bot:
+        return
+    now = datetime.utcnow()
+    try:
+        async with AsyncSessionLocal() as session:
+            rows = (await session.execute(
+                select(PersonalEvent, User).join(User, User.id == PersonalEvent.user_id).where(
+                    PersonalEvent.start_time <= now + timedelta(days=1),
+                    PersonalEvent.start_time >= now - timedelta(hours=12),
+                    or_(PersonalEvent.remind1_sent == False, PersonalEvent.remind2_sent == False),  # noqa: E712
+                    User.is_active == True,  # noqa: E712
+                )
+            )).all()
+            for ev, user in rows:
+                due = reminder_due(ev, now)
+                # Vaqti o'tib ketgan "1 kun oldin" eslatmasi yuborilmaydi, faqat belgilanadi
+                soon_at = ev.start_time - timedelta(hours=1) if ev.has_time else ev.start_time
+                if not ev.remind1_sent and now >= soon_at:
+                    ev.remind1_sent = True
+                if not due:
+                    continue
+                lang = lang_of(user)
+                key = "plan_remind_day" if due == "day" else ("plan_remind_hour" if ev.has_time else "plan_remind_today")
+                body = f"<b>{esc(ev.title)}</b>\n{esc(format_when(ev.start_time, ev.has_time, lang))}"
+                if ev.place:
+                    body += f"\n📍 {esc(ev.place)}"
+                if ev.description:
+                    body += f"\n{esc(ev.description)}"
+                status, note = await safe_send(bot, user.telegram_id, t(lang, key, event=body), parse_mode="HTML")
+                if status != "ok":
+                    logger.warning(f"Plan reminder for {user.telegram_id} not delivered: {status} {note}")
+                if due == "day":
+                    ev.remind1_sent = True
+                else:
+                    ev.remind1_sent = ev.remind2_sent = True
+            await session.commit()
+    except Exception as e:  # noqa: BLE001 - scheduler to'xtab qolmasin
+        logger.error(f"check_and_send_event_reminders job failed: {e}")

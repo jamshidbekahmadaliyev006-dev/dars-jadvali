@@ -23,6 +23,8 @@ class User(Base, TimestampMixin):
     # language_code avval Telegram'dan keladi, shuning uchun tanlov alohida belgilanadi
     language_chosen: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # "Boshqa" foydalanuvchi: talaba ham o'qituvchi ham emas, faqat "Mening rejalarim"dan foydalanadi
+    plan_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
 
     # Universitet bog'lanishlari (ixtiyoriy, keyingi bosqichlarda to'ldiriladi)
     university_id: Mapped[Optional[int]] = mapped_column(

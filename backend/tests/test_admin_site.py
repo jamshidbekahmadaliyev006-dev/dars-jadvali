@@ -418,7 +418,7 @@ async def test_reject_without_reason_keeps_the_standard_message(async_client, db
 async def test_broadcast_reaches_only_the_chosen_audience(async_client, db_session, fake_bot):
     d = await seed(db_session)
     counts = (await async_client.get(f"/api/v1/admin/broadcast/audiences?uni={d['uni'].id}", headers=auth())).json()
-    assert counts == {"all": 6, "nosch": 2, "done": 1, "nogr": 1, "teachers": 1, "ru": 1, "en": 1}
+    assert counts == {"all": 6, "nosch": 2, "done": 1, "nogr": 1, "others": 0, "teachers": 1, "ru": 1, "en": 1}
 
     r = await async_client.post("/api/v1/admin/broadcast", json={"uni": d["uni"].id, "audience": "nosch", "text": "<b>Salom</b>"}, headers=auth())
     assert r.status_code == 200, r.text

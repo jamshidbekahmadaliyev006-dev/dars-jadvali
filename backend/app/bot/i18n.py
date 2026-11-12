@@ -435,6 +435,7 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "live_at": {"uz": "🕒 Hozirgi holat: {time}", "ru": "🕒 Актуально на: {time}"},
     "btn_refresh": {"uz": "🔄 Yangilash", "ru": "🔄 Обновить"},
     "users_pending": {"uz": "⏳ Tasdiq kutayotgan o'qituvchilar: <b>{n}</b> ta", "ru": "⏳ Преподаватели ждут подтверждения: <b>{n}</b>"},
+    "users_other": {"uz": "📌 Boshqa (faqat rejalar): <b>{n}</b> ta", "ru": "📌 Другие (только планы): <b>{n}</b>"},
     "users_unregistered": {"uz": "🚪 Ro'yxatdan o'tishni tugatmagan: <b>{n}</b> ta", "ru": "🚪 Не завершили регистрацию: <b>{n}</b>"},
     "users_stats": {
         "uz": "👤 <b>Foydalanuvchilar</b>"+NL+NL+"👥 Jami: <b>{total}</b> ta"+NL+"👨‍🏫 O'qituvchilar: <b>{teachers}</b> ta"+NL+"🎓 Talabalar: <b>{students}</b> ta",
@@ -522,6 +523,49 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "ru": "📢 <b>Проверьте</b>\n\n{text}\n\n<i>Получателей: {count}.</i>",
     },
     "announce_header": {"uz": "📢 <b>E'lon</b>\n\n{text}", "ru": "📢 <b>Объявление</b>\n\n{text}"},
+    # Mening rejalarim
+    "btn_plans": {"uz": "📌 Mening rejalarim", "ru": "📌 Мои планы"},
+    "btn_role_other": {"uz": "Boshqa", "ru": "Другое"},
+    "btn_plan_add": {"uz": "➕ Reja qo'shish", "ru": "➕ Добавить"},
+    "btn_plan_save": {"uz": "✅ Saqlash", "ru": "✅ Сохранить"},
+    "btn_plan_cancel": {"uz": "❌ Bekor qilish", "ru": "❌ Отмена"},
+    "role_other_done": {
+        "uz": "✅ <b>Tayyor!</b>\n\nMuhim uchrashuv, kun tartibi yoki muddatni rasm yoki matn qilib yuboring: bot o'qib oladi va vaqti kelganda eslatadi.",
+        "ru": "✅ <b>Готово!</b>\n\nОтправьте важную встречу, повестку или срок фото или текстом: бот прочитает и напомнит вовремя.",
+    },
+    "plans_header": {"uz": "📌 <b>Mening rejalarim</b>", "ru": "📌 <b>Мои планы</b>"},
+    "plans_empty": {
+        "uz": "📌 <b>Mening rejalarim</b>\n\nHozircha reja yo'q. Muhim uchrashuv, kun tartibi yoki muddatni rasm yoki matn qilib yuboring: bot o'qib, vaqti kelganda eslatadi.",
+        "ru": "📌 <b>Мои планы</b>\n\nПока планов нет. Отправьте важную встречу, повестку или срок фото или текстом: бот прочитает и напомнит вовремя.",
+    },
+    "plans_prompt": {
+        "uz": "📝 <b>Rejani yuboring</b>\n\nRasm (taklifnoma, kun tartibi, jadval skrinshoti) yoki matn, masalan: <i>15-noyabr 14:00 dekanatda uchrashuv</i>. Bir nechta voqea bo'lsa, hammasi birga o'qiladi.",
+        "ru": "📝 <b>Отправьте план</b>\n\nФото (приглашение, повестка, скриншот) или текст, например: <i>15 ноября 14:00 встреча в деканате</i>. Если событий несколько, прочитаются все сразу.",
+    },
+    "plans_reading": {"uz": "⏳ O'qiyapman...", "ru": "⏳ Читаю..."},
+    "plans_found": {"uz": "📌 Quyidagilarni topdim. Saqlaysizmi?", "ru": "📌 Нашёл следующее. Сохранить?"},
+    "plans_none": {
+        "uz": "Rasm yoki matnda sanasi bor voqea topilmadi. Sana va vaqtni aniq yozib, qayta yuboring.",
+        "ru": "Событий с датой не нашлось. Укажите дату и время и отправьте снова.",
+    },
+    "plans_saved": {
+        "uz": "✅ Saqlandi: <b>{n}</b> ta. Eslataman: 1 kun oldin va 1 soat oldin (vaqti yozilmaganlarni kuni ertalab ham).",
+        "ru": "✅ Сохранено: <b>{n}</b>. Напомню за 1 день и за 1 час (если время не указано — ещё и утром в тот день).",
+    },
+    "plans_cancelled": {"uz": "Bekor qilindi.", "ru": "Отменено."},
+    "plans_deleted": {"uz": "🗑 O'chirildi", "ru": "🗑 Удалено"},
+    "plans_lost": {"uz": "Reja topilmadi, qaytadan yuboring.", "ru": "План не найден, отправьте заново."},
+    "plans_limit": {
+        "uz": "Bugungi limit tugadi (kuniga {n} tagacha). Ertaga davom eting.",
+        "ru": "Лимит на сегодня исчерпан (до {n} в день). Продолжите завтра.",
+    },
+    "plans_error": {
+        "uz": "Hozir o'qib bo'lmadi. Birozdan keyin qayta yuboring.",
+        "ru": "Сейчас не удалось прочитать. Попробуйте чуть позже.",
+    },
+    "plan_remind_day": {"uz": "📌 <b>Ertaga</b> reja bor:\n\n{event}", "ru": "📌 <b>Завтра</b> по плану:\n\n{event}"},
+    "plan_remind_hour": {"uz": "⏰ <b>1 soatdan keyin</b>:\n\n{event}", "ru": "⏰ <b>Через 1 час</b>:\n\n{event}"},
+    "plan_remind_today": {"uz": "📌 <b>Bugun</b> reja bor:\n\n{event}", "ru": "📌 <b>Сегодня</b> по плану:\n\n{event}"},
 }
 
 

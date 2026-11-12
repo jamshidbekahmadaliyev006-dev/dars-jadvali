@@ -222,8 +222,8 @@ async def test_admin_statistics_count_unique_subjects_and_user_roles(db_session:
     stats = await collect_statistics(db_session)
     assert stats == {"universities": 1, "faculties": 1, "teachers": 1, "groups": 2, "subjects": 3}
     counts = await collect_user_counts(db_session)
-    assert counts == {"total": 3, "teachers": 1, "pending": 0, "students": 1, "unregistered": 1}
-    assert counts["teachers"] + counts["pending"] + counts["students"] + counts["unregistered"] == counts["total"]
+    assert counts == {"total": 3, "teachers": 1, "pending": 0, "students": 1, "unregistered": 1, "others": 0}
+    assert counts["teachers"] + counts["pending"] + counts["students"] + counts["unregistered"] + counts["others"] == counts["total"]
 
 
 @pytest.mark.asyncio
@@ -297,8 +297,8 @@ async def test_user_categories_always_add_up_to_total(db_session: AsyncSession):
     await TeacherService.set_status(db_session, rejected.id, TeacherStatus.REJECTED)
 
     c = await collect_user_counts(db_session)
-    assert c == {"total": 7, "teachers": 1, "pending": 1, "students": 2, "unregistered": 3}
-    assert c["teachers"] + c["pending"] + c["students"] + c["unregistered"] == c["total"]
+    assert c == {"total": 7, "teachers": 1, "pending": 1, "students": 2, "unregistered": 3, "others": 0}
+    assert c["teachers"] + c["pending"] + c["students"] + c["unregistered"] + c["others"] == c["total"]
     text = await _users_message(db_session, "uz")
     assert "Jami: <b>7</b>" in text and "tugatmagan: <b>3</b>" in text and "kutayotgan" in text
 

@@ -692,6 +692,10 @@ async def handle_unknown_message(message: Message, current_user: User, session: 
     lang = lang_of(current_user)
     if not current_user.group_id:
         from app.services.teacher_service import TeacherService
+        if current_user.plan_only:
+            from app.bot.keyboards.reply import get_plan_keyboard
+            await message.answer(t(lang, "plans_empty"), parse_mode="HTML", reply_markup=get_plan_keyboard(lang))
+            return
         if not await TeacherService.get_profile(session, current_user.id):
             from app.bot.handlers.teacher import role_keyboard
             await message.answer(t(lang, "choose_role"), parse_mode="HTML", reply_markup=role_keyboard(lang))

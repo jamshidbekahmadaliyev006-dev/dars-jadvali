@@ -110,6 +110,7 @@ async def process_group(message: Message, state: FSMContext, current_user: User,
     current_user.university_id = univ.id
     current_user.faculty_id = group.faculty_id
     current_user.group_id = group.id
+    current_user.plan_only = False  # talaba bo'ldi
     await session.commit()
     await state.clear()
 

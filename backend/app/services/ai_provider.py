@@ -59,6 +59,10 @@ class BaseAIProvider(ABC):
         """Talaba qo'lda yozgan jadval matnidan darslarni ajratib olish"""
         raise RuntimeError("Bu AI provayderi jadval matnini o'qiy olmaydi")
 
+    async def extract_events(self, images: List[bytes], text: str, today: str, weekday: str) -> List[Dict[str, Any]]:
+        """Rasm yoki matndan sanaga bog'liq voqealar (uchrashuv, kun tartibi, muddat): [{title, date, time, place, note}]"""
+        raise RuntimeError("Bu AI provayderi rejalarni o'qiy olmaydi")
+
     @abstractmethod
     async def chat_student_assistant(self, query: str, context: Dict[str, Any]) -> str:
         """Talabaga darslar, vazifalar va rejalar bo'yicha yordam beruvchi AI assistant"""
@@ -70,6 +74,9 @@ class MockAIProvider(BaseAIProvider):
     Offline va test rejimida yoki API key bo'lmaganda ishlovchi Mock provayder.
     Tizimni to'xtatib qo'ymasdan realistik ma'lumotlar bilan ta'minlaydi.
     """
+
+    async def extract_events(self, images: List[bytes], text: str, today: str, weekday: str) -> List[Dict[str, Any]]:
+        return []  # oflayn rejimda hech narsa to'qilmaydi
 
     async def extract_schedule_from_text(self, text: str) -> ExtractedScheduleResult:
         return await self.extract_schedule_from_image(b"")
@@ -327,6 +334,46 @@ class GeminiAIProvider(BaseAIProvider):
 
         raise RuntimeError(f"Jadval rasmini o'qib bo'lmadi ({last_error})")
 
+    EVENTS_PROMPT = (
+        "Bugungi sana: {today} ({weekday}). Vaqt zonasi: Toshkent. Foydalanuvchi rasm yoki matn yubordi. Unda sanaga bog'liq "
+        "voqealar bor: uchrashuv, yig'ilish, kun tartibi, imtihon, to'lov yoki topshirish muddati, tadbir va h.k. "
+        "(o'zbek, rus yoki ingliz tilida). Har bir voqeani ajrating.\n"
+        "Faqat JSON massiv qaytaring, har bir element kalitlari: title (qisqa va aniq nom), date (YYYY-MM-DD), "
+        "time (HH:MM; vaqt yozilmagan bo'lsa null), place (joy; yo'q bo'lsa null), note (muhim izoh; yo'q bo'lsa null).\n"
+        "- Yil yozilmagan bo'lsa, bugundan keyingi eng yaqin shunday sanani oling.\n"
+        "- 'ertaga', 'indinga', 'dushanba kuni', 'keyingi juma' kabilarni bugungi sanaga nisbatan hisoblang.\n"
+        "- Vaqt oralig'i bo'lsa (14:00-16:00), time ga boshlanish vaqtini yozing.\n"
+        "- Faqat ko'ringan narsani yozing, hech narsa to'qimang. Voqea yo'q bo'lsa, [] qaytaring."
+    )
+
+    async def extract_events(self, images: List[bytes], text: str, today: str, weekday: str) -> List[Dict[str, Any]]:
+        prompt = self.EVENTS_PROMPT.format(today=today, weekday=weekday)
+        if text:
+            prompt += "\n\nMatn:\n" + text[:4000]
+        parts: List[Dict[str, Any]] = [{"text": prompt}]
+        for data in images:
+            parts.append({"inline_data": {"mime_type": _detect_image_mime(data), "data": base64.b64encode(data).decode("utf-8")}})
+        payload = {"contents": [{"parts": parts}], "generationConfig": {"response_mime_type": "application/json", "temperature": 0}}
+
+        last_error = "noma'lum xato"
+        deadline = time.monotonic() + self.TOTAL_BUDGET_SECONDS
+        async with httpx.AsyncClient(timeout=self.REQUEST_TIMEOUT_SECONDS) as client:
+            for model in self.VISION_MODELS:
+                if time.monotonic() > deadline:
+                    break
+                try:
+                    res = await client.post(f"{self.base_url}/{model}:generateContent", headers=self._headers(), json=payload)
+                    if res.status_code != 200:
+                        last_error = f"{model}: HTTP {res.status_code}"
+                        logger.error(f"Gemini events error {res.status_code} ({model}): {res.text[:200]}")
+                        continue
+                    parsed = json.loads(res.json()["candidates"][0]["content"]["parts"][0]["text"])
+                    return parsed.get("events", []) if isinstance(parsed, dict) else parsed
+                except Exception as e:  # noqa: BLE001
+                    last_error = f"{model}: {type(e).__name__}"
+                    logger.error(f"Gemini events error: {last_error}: {e}")
+        raise RuntimeError(f"Rejani o'qib bo'lmadi ({last_error})")
+
     async def chat_student_assistant(self, query: str, context: Dict[str, Any]) -> str:
         url = f"{self.base_url}/{self.CHAT_MODEL}:generateContent"
 
@@ -395,6 +442,11 @@ class GroqAIProvider(BaseAIProvider):
         if self.vision_provider:
             return await self.vision_provider.extract_schedule_from_text(text)
         raise RuntimeError("Jadval matnini o'qish uchun GEMINI_API_KEY kerak")
+
+    async def extract_events(self, images: List[bytes], text: str, today: str, weekday: str) -> List[Dict[str, Any]]:
+        if self.vision_provider:
+            return await self.vision_provider.extract_events(images, text, today, weekday)
+        raise RuntimeError("Rejani o'qish uchun GEMINI_API_KEY kerak")
 
     async def resolve_faculty(self, typed: str, existing: List[str]) -> Optional[Dict[str, Any]]:
         known = "; ".join(existing[:60]) or "(hali yo'q)"

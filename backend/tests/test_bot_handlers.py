@@ -88,7 +88,7 @@ async def test_start_handler_triggers_registration_when_no_group():
     role_call = mock_msg.answer.call_args_list[0]
     assert role_call.args[0] == "Tanlang:"
     buttons = [b.callback_data for row in role_call.kwargs["reply_markup"].inline_keyboard for b in row]
-    assert buttons == ["role_student", "role_teacher"]
+    assert buttons == ["role_student", "role_teacher", "role_other"]
 
 
 @pytest.mark.asyncio
@@ -341,7 +341,7 @@ def test_every_menu_button_has_a_handler_for_both_languages():
     for key in (
         "btn_today", "btn_tomorrow", "btn_week", "btn_reminder", "btn_send", "btn_profile", "btn_language", "btn_contact",
         "btn_new_shots", "btn_stats", "btn_groups", "btn_users", "btn_announce", "btn_student_view", "btn_teachers",
-        "btn_admin_site",
+        "btn_admin_site", "btn_plans",
     ):
         known |= labels(key)
 

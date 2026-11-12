@@ -17,7 +17,7 @@ def get_scheduler() -> AsyncIOScheduler:
 
 async def start_scheduler() -> None:
     """Background task schedulerni ishga tushirish"""
-    from app.scheduler.jobs import check_and_send_lesson_reminders
+    from app.scheduler.jobs import check_and_send_event_reminders, check_and_send_lesson_reminders
 
     sched = get_scheduler()
     if not sched.running:
@@ -27,6 +27,9 @@ async def start_scheduler() -> None:
             seconds=60,
             id="lesson_reminders_job",
             replace_existing=True,
+        )
+        sched.add_job(
+            check_and_send_event_reminders, "interval", seconds=60, id="event_reminders_job", replace_existing=True,
         )
         # Kuniga bir marta (Toshkent vaqti 03:30) keraksiz ma'lumotlarni tozalash
         from app.services.maintenance import cleanup_job

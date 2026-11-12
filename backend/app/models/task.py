@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, false, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 from app.models.enums import TaskPriority
@@ -37,6 +37,12 @@ class PersonalEvent(Base, TimestampMixin):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Bot "Mening rejalarim": boshqa foydalanuvchilar ham muhim uchrashuv, kun tartibi va h.k. uchun foydalanadi.
+    # start_time naive UTC; has_time=False - faqat sana yozilgan (eslatma soat 09:00 ga qo'yiladi)
+    place: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    has_time: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
+    remind1_sent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    remind2_sent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="events")

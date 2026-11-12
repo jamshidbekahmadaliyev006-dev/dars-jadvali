@@ -56,7 +56,14 @@ def _add_missing_columns(sync_conn) -> None:
     """create_all mavjud jadvalga yangi ustun qo'shmaydi: kerakli ustunlarni shu yerda qo'shamiz (bor bo'lsa tegmaydi)"""
     from sqlalchemy import inspect, text
 
-    wanted = {"admin_broadcasts": [("kind", "VARCHAR(10) NOT NULL DEFAULT 'msg'")]}
+    wanted = {
+        "admin_broadcasts": [("kind", "VARCHAR(10) NOT NULL DEFAULT 'msg'")],
+        "users": [("plan_only", "BOOLEAN NOT NULL DEFAULT 0")],
+        "personal_events": [
+            ("place", "VARCHAR(255)"), ("has_time", "BOOLEAN NOT NULL DEFAULT 1"),
+            ("remind1_sent", "BOOLEAN NOT NULL DEFAULT 0"), ("remind2_sent", "BOOLEAN NOT NULL DEFAULT 0"),
+        ],
+    }
     insp = inspect(sync_conn)
     for table, columns in wanted.items():
         if not insp.has_table(table):

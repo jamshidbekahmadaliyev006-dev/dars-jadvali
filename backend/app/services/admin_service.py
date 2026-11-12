@@ -35,7 +35,7 @@ from app.services.schedule_service import (
 )
 from app.services.university_service import GENERAL_FACULTY_NAME, name_key
 
-STAGES = ("done", "nosch", "nogr", "teacher", "pending", "students")
+STAGES = ("done", "nosch", "nogr", "teacher", "pending", "students", "other")
 # Faqat ADMIN_REVIEW adminni kutadi (botdagi navbat ham shunday). NEEDS_CORRECTION - talaba tuzatib qayta yuborishi kerak.
 OPEN_STATUSES = (SubmissionStatus.ADMIN_REVIEW,)
 
@@ -82,6 +82,11 @@ def _is_student():
     return and_(User.group_id.is_not(None), User.id.not_in(_approved_ids()), User.id.not_in(_pending_ids()))
 
 
+def _is_other():
+    """"Boshqa" foydalanuvchi: faqat rejalar (talaba ham o'qituvchi ham emas)"""
+    return and_(User.plan_only == True, User.group_id.is_(None), User.id.not_in(_approved_ids()), User.id.not_in(_pending_ids()))  # noqa: E712
+
+
 def _has_schedule():
     return exists().where(Schedule.group_id == User.group_id, Schedule.is_active == True)
 
@@ -92,7 +97,7 @@ def _stage(user: User, has_schedule: bool, is_teacher: bool, is_pending: bool) -
     if is_pending:
         return "pending"
     if not user.group_id:
-        return "nogr"
+        return "other" if user.plan_only else "nogr"
     return "done" if has_schedule else "nosch"
 
 
@@ -105,8 +110,9 @@ async def user_counts(session: AsyncSession, uni: int = 0, until: Optional[datet
     teachers = await q(User.id.in_(_approved_ids())) or 0
     pending = await q(User.id.in_(_pending_ids()), User.id.not_in(_approved_ids())) or 0
     students = await q(_is_student()) or 0
-    return {"total": total, "teachers": teachers, "pending": pending, "students": students,
-            "unregistered": total - teachers - pending - students}
+    others = await q(_is_other()) or 0
+    return {"total": total, "teachers": teachers, "pending": pending, "students": students, "others": others,
+            "unregistered": total - teachers - pending - students - others}
 
 
 async def statistics(session: AsyncSession, uni: int = 0, until: Optional[datetime] = None) -> Dict[str, int]:
@@ -314,7 +320,9 @@ async def list_users(
     elif stage == "nosch":
         stmt = stmt.where(_is_student(), ~_has_schedule())
     elif stage == "nogr":
-        stmt = stmt.where(User.group_id.is_(None), User.id.not_in(_approved_ids()), User.id.not_in(_pending_ids()))
+        stmt = stmt.where(User.group_id.is_(None), User.plan_only == False, User.id.not_in(_approved_ids()), User.id.not_in(_pending_ids()))  # noqa: E712
+    elif stage == "other":
+        stmt = stmt.where(_is_other())
     if lang:
         stmt = stmt.where(User.language_code == lang)
     text = (q or "").strip().lstrip("@")
@@ -488,7 +496,7 @@ async def save_submission_lessons(session: AsyncSession, sub_id: int, lessons: L
 
 
 # ---------------- xabarlar ----------------
-AUDIENCES = ("all", "nosch", "done", "nogr", "teachers", "ru", "en")
+AUDIENCES = ("all", "nosch", "done", "nogr", "others", "teachers", "ru", "en")
 
 
 def audience_filter(uni: int, audience: str):
@@ -499,7 +507,9 @@ def audience_filter(uni: int, audience: str):
     if audience == "done":
         return and_(student, _has_schedule())
     if audience == "nogr":
-        return and_(base, User.group_id.is_(None), User.id.not_in(_approved_ids()), User.id.not_in(_pending_ids()))
+        return and_(base, User.group_id.is_(None), User.plan_only == False, User.id.not_in(_approved_ids()), User.id.not_in(_pending_ids()))  # noqa: E712
+    if audience == "others":
+        return and_(base, _is_other())
     if audience == "teachers":
         return and_(base, User.id.in_(_approved_ids()))
     if audience in ("ru", "en", "uz"):

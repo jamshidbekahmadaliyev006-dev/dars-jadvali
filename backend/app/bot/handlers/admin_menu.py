@@ -101,8 +101,15 @@ async def collect_user_counts(session: AsyncSession) -> dict:
             User.group_id.is_not(None), User.id.not_in(approved_ids), User.id.not_in(pending_ids)
         )
     ) or 0
-    unregistered = total - teachers - pending - students
-    return {"total": total, "teachers": teachers, "pending": pending, "students": students, "unregistered": unregistered}
+    others = await session.scalar(
+        select(func.count(User.id)).where(
+            User.plan_only == True, User.group_id.is_(None),  # noqa: E712
+            User.id.not_in(approved_ids), User.id.not_in(pending_ids),
+        )
+    ) or 0
+    unregistered = total - teachers - pending - students - others
+    return {"total": total, "teachers": teachers, "pending": pending, "students": students, "unregistered": unregistered,
+            "others": others}
 
 
 async def _users_message(session: AsyncSession, lang: str) -> str:
@@ -110,6 +117,8 @@ async def _users_message(session: AsyncSession, lang: str) -> str:
     text = t(lang, "users_stats", total=c["total"], teachers=c["teachers"], students=c["students"])
     if c["pending"]:
         text += NL + t(lang, "users_pending", n=c["pending"])
+    if c["others"]:
+        text += NL + t(lang, "users_other", n=c["others"])
     text += NL + t(lang, "users_unregistered", n=c["unregistered"])
     return text
 
