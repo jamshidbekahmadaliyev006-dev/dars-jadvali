@@ -1,5 +1,7 @@
 """
 Mavjud jadvallarga to'liq fan kodini (BGH001-3, PHY018-L2) yozadi: kod avval saqlanmagan edi.
+Ikkinchi qadam: nomi ichida kod qolib ketgan fanlarni ("Elektronika va sxemalar-ELC013-L2") tozalaydi: kod alohida
+ustunga o'tadi, nom toza bo'ladi, bir xil kodli va o'xshash nomli fan bo'lsa ularning darslari bittasiga birlashadi.
 Kod talabalar yuborgan jadval natijalaridan (schedule_submissions.ai_extracted_json) olinadi: har bir dars
 (guruh, kun, vaqt, asosiy kod) bo'yicha eng oxirgi yozuv. Topilmasa fan kodi (asosiy) qoladi.
 
@@ -8,6 +10,7 @@ Kod talabalar yuborgan jadval natijalaridan (schedule_submissions.ai_extracted_j
 """
 import asyncio
 import json
+from difflib import SequenceMatcher
 import os
 import re
 import sys
@@ -21,6 +24,7 @@ from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.models.schedule import Schedule, ScheduleSubmission  # noqa: E402
 from app.models.university import Subject  # noqa: E402
 from app.services.schedule_service import resolve_day_of_week, split_subject_code  # noqa: E402
+from app.services.university_service import name_key  # noqa: E402
 
 
 async def main(apply: bool) -> None:
@@ -53,10 +57,37 @@ async def main(apply: bool) -> None:
                 missing += 1
             if apply and full and not s.code:
                 s.code = full
-        garbled = (await session.execute(select(Subject.id, Subject.name))).all()
-        garbled = [(i, n) for i, n in garbled if re.search(r"[A-Z]{2,}\d{2,}", n or "")]
         print(f"active lessons: {len(rows)}; full code found: {exact}; only subject code: {fallback}; no code at all: {missing}")
-        print(f"subjects whose NAME still contains a code (needs a look): {len(garbled)} {garbled[:8]}")
+
+        # 2) nomi ichida kod qolgan fanlar
+        subjects = (await session.execute(select(Subject))).scalars().all()
+        garbled = [s for s in subjects if re.search(r"[A-Z]{2,}\d{2,}", s.name or "")]
+        renamed = merged = 0
+        done = {}  # (universitet, kod) -> tozalangan fan: o'sha kodli keyingi iflos fanlar unga birlashadi
+        for s in garbled:
+            clean, base, full = split_subject_code(s.name)
+            if not base or clean == s.name:
+                continue
+            target = next((x for x in subjects if x.id != s.id and x.university_id == s.university_id and x.code == base
+                           and x not in garbled and SequenceMatcher(None, name_key(clean), name_key(x.name)).ratio() >= 0.6), None)
+            target = target or done.get((s.university_id, base))
+            lessons = (await session.execute(select(Schedule).where(Schedule.subject_id == s.id))).scalars().all()
+            print(f"  {s.name!r} -> {clean!r} [{base}]" + (f" merged into #{target.id} {target.name!r}" if target else " renamed") + f" ({len(lessons)} lessons)")
+            if apply:
+                for lesson in lessons:
+                    lesson.code = lesson.code or full
+                    if target:
+                        lesson.subject_id = target.id
+                if target:
+                    await session.flush()
+                    await session.delete(s)
+                else:
+                    s.name, s.code = clean, s.code or base
+            if not target:
+                done[(s.university_id, base)] = s
+            merged += 1 if target else 0
+            renamed += 0 if target else 1
+        print(f"subjects with a code inside the name: {len(garbled)}; renamed: {renamed}; merged: {merged}")
         if apply:
             await session.commit()
             print("written")
@@ -66,4 +97,5 @@ async def main(apply: bool) -> None:
 
 if __name__ == "__main__":
     asyncio.run(main("--apply" in sys.argv))
+    sys.stdout.flush()
     os._exit(0)
