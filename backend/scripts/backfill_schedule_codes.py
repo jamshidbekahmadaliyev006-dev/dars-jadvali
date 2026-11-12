@@ -55,7 +55,7 @@ async def main(apply: bool) -> None:
                 full, fallback = base, fallback + 1
             else:
                 missing += 1
-            if apply and full and not s.code:
+            if apply and full and full != base and not s.code:   # faqat qo'shimchali TO'LIQ kod yoziladi; asosiy kod yozilmaydi
                 s.code = full
         print(f"active lessons: {len(rows)}; full code found: {exact}; only subject code: {fallback}; no code at all: {missing}")
 
@@ -75,7 +75,8 @@ async def main(apply: bool) -> None:
             print(f"  {s.name!r} -> {clean!r} [{base}]" + (f" merged into #{target.id} {target.name!r}" if target else " renamed") + f" ({len(lessons)} lessons)")
             if apply:
                 for lesson in lessons:
-                    lesson.code = lesson.code or full
+                    if full and full != base:
+                        lesson.code = full or lesson.code
                     if target:
                         lesson.subject_id = target.id
                 if target:
