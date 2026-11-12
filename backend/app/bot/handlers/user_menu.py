@@ -254,6 +254,9 @@ async def _notify_admins(
 @router.message(F.photo, ~StateFilter(ContactStates, AnnouncementStates))
 async def handle_schedule_photo_upload(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
     lang = lang_of(current_user)
+    from app.bot.handlers.plans import plan_free_input
+    if await plan_free_input(message, state, current_user):  # "Boshqa" foydalanuvchi: bu reja
+        return
     if not current_user.university_id or not current_user.group_id:
         await start_registration(message, state, session, lang)
         return
@@ -272,6 +275,9 @@ async def handle_schedule_photo_upload(message: Message, current_user: User, ses
 @router.message(F.document.mime_type.startswith("image/"), ~StateFilter(ContactStates, AnnouncementStates))
 async def handle_schedule_document_upload(message: Message, current_user: User, session: AsyncSession, state: FSMContext):
     lang = lang_of(current_user)
+    from app.bot.handlers.plans import plan_free_input
+    if await plan_free_input(message, state, current_user):
+        return
     if not current_user.university_id or not current_user.group_id:
         await start_registration(message, state, session, lang)
         return
@@ -693,7 +699,10 @@ async def handle_unknown_message(message: Message, current_user: User, session: 
     if not current_user.group_id:
         from app.services.teacher_service import TeacherService
         if current_user.plan_only:
+            from app.bot.handlers.plans import plan_free_input
             from app.bot.keyboards.reply import get_plan_keyboard
+            if await plan_free_input(message, state, current_user):  # yozgan matni reja sifatida o'qiladi
+                return
             await message.answer(t(lang, "plans_empty"), parse_mode="HTML", reply_markup=get_plan_keyboard(lang))
             return
         if not await TeacherService.get_profile(session, current_user.id):

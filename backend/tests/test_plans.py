@@ -136,7 +136,7 @@ async def test_other_user_sends_text_reads_it_and_saves_after_confirmation(db_se
     day = date.today() + timedelta(days=5)
     monkeypatch.setattr(PlanService, "read", AsyncMock(return_value=[ParsedEvent("Yig'ilish", day, datetime.strptime("10:30", "%H:%M").time())]))
     state, msg = _State(), _message("5 kundan keyin 10:30 yig'ilish")
-    await plan_handlers.plan_only_text(msg, state, user)            # tugma bosmasdan yozildi
+    assert await plan_handlers.plan_free_input(msg, state, user) is True   # tugma bosmasdan yozildi
     assert "plan_events" in state.data and "Yig'ilish" in msg.answer.await_args.args[0]
     assert (await db_session.execute(select(PersonalEvent))).scalars().first() is None   # tasdiqlanmaguncha saqlanmaydi
 
@@ -208,3 +208,34 @@ async def test_other_users_are_their_own_group_in_the_counts_filters_and_audienc
     assert nogr["total"] == 1 and nogr["items"][0]["stage"] == "nogr"
     counts = await admin_service.audience_counts(db_session, 0)
     assert counts["others"] == 2 and counts["nogr"] == 1 and counts["all"] == 3
+
+
+def test_no_filter_asks_for_data_that_only_exists_after_the_filters():
+    """current_user va session middleware tomonidan filterlardan KEYIN beriladi: filter ularni so'rasa, har bir xabarda
+    TypeError chiqib bot ishlamay qoladi (bir marta shunday bo'lgan)."""
+    import inspect
+
+    from app.bot.dispatcher import setup_dispatcher
+
+    dp = setup_dispatcher()
+    bad = []
+
+    def walk(router):
+        for observer in router.observers.values():
+            for handler in observer.handlers:
+                for f in handler.filters:
+                    target = f.callback
+                    func = getattr(target, "__call__", None) if not inspect.isfunction(target) and not inspect.ismethod(target) else target
+                    try:
+                        params = inspect.signature(func).parameters
+                    except (TypeError, ValueError):
+                        continue
+                    # faqat MAJBURIY parametr xato beradi (ApprovedTeacher kabilarda standart qiymat bor)
+                    required = {n for n, p in params.items() if p.default is inspect.Parameter.empty}
+                    if required & {"current_user", "session"}:
+                        bad.append((handler.callback.__name__, required))
+        for sub in router.sub_routers:
+            walk(sub)
+
+    walk(dp)
+    assert not bad, bad

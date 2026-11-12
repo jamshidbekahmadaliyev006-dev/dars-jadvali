@@ -5,9 +5,7 @@ foydalanuvchi tasdiqlaydi, bot vaqti kelganda eslatadi. Talaba bo'lmaganlar ("Bo
 from typing import List, Optional
 
 from aiogram import F, Router
-from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import default_state
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -142,29 +140,22 @@ async def plan_text(message: Message, state: FSMContext, current_user: User):
     await _handle_text(message, state, current_user)
 
 
-# "Boshqa" foydalanuvchi tugma bosmasdan to'g'ridan-to'g'ri rasm/matn yuborsa ham reja sifatida o'qiladi
-async def _plan_only(message: Message, current_user: User) -> bool:
-    return bool(current_user.plan_only and not current_user.group_id)
-
-
-async def _plan_only_text(message: Message, current_user: User) -> bool:
-    text = (message.text or "").strip()
-    return await _plan_only(message, current_user) and bool(text) and not text.startswith("/") and text not in _all_menu_labels()
-
-
-@router.message(StateFilter(default_state), F.photo, _plan_only)
-async def plan_only_photo(message: Message, state: FSMContext, current_user: User):
-    await _handle_images(message, state, current_user, message.photo[-1].file_id, False)
-
-
-@router.message(StateFilter(default_state), F.document.mime_type.startswith("image/"), _plan_only)
-async def plan_only_document(message: Message, state: FSMContext, current_user: User):
-    await _handle_images(message, state, current_user, message.document.file_id, True)
-
-
-@router.message(StateFilter(default_state), F.text, _plan_only_text)
-async def plan_only_text(message: Message, state: FSMContext, current_user: User):
-    await _read_and_preview(message, state, current_user, None, (message.text or "").strip())
+# "Boshqa" foydalanuvchi tugma bosmasdan rasm/matn yuborsa: user_menu dagi rasm handlerlari va "tushunarsiz xabar"
+# handleri shu yerdagi plan_free_input() ga topshiradi (filterda current_user mavjud emas - middleware undan keyin ishlaydi)
+async def plan_free_input(message: Message, state: FSMContext, user: User) -> bool:
+    """True - xabar reja sifatida o'qildi (foydalanuvchi "Boshqa" va guruhi yo'q)"""
+    if not (user.plan_only and not user.group_id):
+        return False
+    if message.photo:
+        await _handle_images(message, state, user, message.photo[-1].file_id, False)
+    elif message.document and (message.document.mime_type or "").startswith("image/"):
+        await _handle_images(message, state, user, message.document.file_id, True)
+    else:
+        text = (message.text or "").strip()
+        if not text or text.startswith("/") or text in _all_menu_labels():
+            return False
+        await _read_and_preview(message, state, user, None, text)
+    return True
 
 
 # ---------- saqlash / bekor / o'chirish ----------
