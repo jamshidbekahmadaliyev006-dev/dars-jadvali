@@ -577,7 +577,7 @@ function viewMsg(){var A=MSG.aud;
    '<div class="comp-row"><span class="grow" id="cnt"></span><button class="btn" type="button" data-act="tpl">Namunani qo‘yish</button><button class="btn primary" type="button" data-act="send">Yuborish</button></div></div></div></div>'}
 function drawMsgs(){var k=mState.aud;$("#chTitle").textContent=AUDN[k][0];$("#chSub").textContent=(MSG.aud[k]||0)+" kishiga ketadi";$("#audNote").innerHTML="Xabar faqat <b>«"+esc(AUDN[k][0])+"»</b> ga ("+(MSG.aud[k]||0)+" kishi) boradi, boshqalarga ketmaydi.";
   var h=MSG.hist;
-  $("#msgs").innerHTML=h.length?'<span class="sys">Oldingi xabarlar</span>'+h.map(function(m){var st=m.total==null?"":(m.done?" · "+m.sent+" ta yetdi"+(m.blocked+m.failed?", "+(m.blocked+m.failed)+" ta yetmadi":""):" · yuborilmoqda: "+(m.sent+m.blocked+m.failed)+" / "+m.total);return '<div class="bub me">'+esc(m.text)+'<small>'+esc(m.created)+st+'</small></div>'}).join(""):'<span class="sys">Bu auditoriyaga hali xabar yuborilmagan</span>';
+  $("#msgs").innerHTML=h.length?'<span class="sys">Oldingi xabarlar</span>'+h.map(function(m){var st=m.total==null?"":(m.done?" · "+m.sent+" ta yetdi"+(m.blocked+m.failed?", "+(m.blocked+m.failed)+" ta yetmadi":""):" · yuborilmoqda: "+(m.sent+m.blocked+m.failed)+" / "+m.total);return '<div class="bub me">'+esc(m.text)+'<small>'+esc(m.created)+st+(m.done?' · <button class="link" type="button" data-act="bc-del" data-id="'+m.id+'">O‘chirish</button>':'')+'</small></div>'}).join(""):'<span class="sys">Bu auditoriyaga hali xabar yuborilmagan</span>';
   var box=$("#msgs");box.scrollTop=box.scrollHeight}
 function initMsg(){var mt=$("#mt");if(!mt.value)mt.value=TPL[mState.lang];
   function cnt(){$("#cnt").textContent=mt.value.length+" / 4000 belgi"}
@@ -716,6 +716,9 @@ document.addEventListener("click",function(e){
   else if(a==="um-clear"){var ut=$("#um");if(ut){ut.value="";ut.focus()}}
   else if(a==="msg-send"){var tx=($("#um")||{}).value||"";if(!tx.trim()){toast("Avval xabar matnini yozing");return}b.disabled=true;
     api("/users/"+id+"/message",{method:"POST",body:{text:tx}}).then(function(r){closeDlg();toast(r.status==="ok"?"Xabar yuborildi":"Yetib bormadi: foydalanuvchi botni bloklagan yoki ishga tushirmagan")}).catch(function(e){b.disabled=false;fail(e)})}
+  else if(a==="bc-del"){confirmDlg("Xabarni o‘chirish","Xabar saytdan ham, foydalanuvchilarning bot chatidan ham o‘chiriladi. Qaytarib bo‘lmaydi.","O‘chirish",function(){
+      api("/broadcast/"+id,{method:"DELETE"}).then(function(r){MSG.hist=MSG.hist.filter(function(m){return m.id!==id});if($("#msgs"))drawMsgs();
+        toast(r.untracked?"Saytdan o‘chirildi. Bu eski xabar, foydalanuvchilardagi nusxasini o‘chirib bo‘lmaydi":(r.to_delete?r.to_delete+" ta chatdan o‘chirilmoqda":"O‘chirildi"))}).catch(fail)},true)}
   else if(a==="req-more"){b.disabled=true;api("/submissions?uni="+S.uni.id+"&status="+encodeURIComponent(rParam())+"&offset="+S.subs.length).then(function(r){S.subs=S.subs.concat(r);S.subsMore=r.length>=50;$("#view").innerHTML=viewReq()}).catch(function(e){b.disabled=false;fail(e)})}
   else if(a==="req-view"){pop($("#bellBtn"),$("#bellPop"),false);openSub(id)}
   else if(a==="req-ok"){review(id,true)}

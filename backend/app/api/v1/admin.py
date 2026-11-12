@@ -298,6 +298,19 @@ async def broadcast_history(uni: int = Query(0), audience: str = "", admin=Admin
     return await svc.broadcast_history(session, await _uni(session, uni), audience)
 
 
+@router.delete("/broadcast/{broadcast_id}")
+async def delete_broadcast(broadcast_id: int, admin=Admin, session: AsyncSession = Depends(get_db)):
+    """Xabar saytdan va foydalanuvchilarning botdagi chatidan o'chiriladi"""
+    try:
+        result = await svc.delete_broadcast(session, _bot(), broadcast_id)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Xabar topilmadi")
+    logger.info(f"Admin site broadcast {broadcast_id} deleted by {admin['id']}: {result['to_delete']} chat messages")
+    return result
+
+
 class BroadcastIn(BaseModel):
     uni: int = 0
     audience: str

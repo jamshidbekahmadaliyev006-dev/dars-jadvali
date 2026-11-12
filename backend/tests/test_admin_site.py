@@ -37,9 +37,14 @@ def bot_settings(monkeypatch):
 class FakeBot:
     def __init__(self):
         self.sent = []
+        self.deleted = []
 
     async def send_message(self, chat_id, text, **kwargs):
         self.sent.append((chat_id, text, kwargs))
+        return type("Sent", (), {"message_id": 5000 + len(self.sent)})()
+
+    async def delete_message(self, chat_id, message_id):
+        self.deleted.append((chat_id, message_id))
 
 
 @pytest.fixture
@@ -427,6 +432,34 @@ async def test_broadcast_reaches_only_the_chosen_audience(async_client, db_sessi
     hist = (await async_client.get(f"/api/v1/admin/broadcast?uni={d['uni'].id}", headers=auth())).json()
     assert hist[-1]["text"] == "<b>Salom</b>" and hist[-1]["sent"] == 2
     assert (await db_session.execute(select(Announcement))).scalars().first() is not None
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_broadcast_removes_it_from_the_users_chats_too(async_client, db_session, fake_bot):
+    from app.models.log import AdminBroadcast, AdminBroadcastMessage
+
+    d = await seed(db_session)
+    job = (await async_client.post("/api/v1/admin/broadcast", json={"uni": d["uni"].id, "audience": "nosch", "text": "Reklama"}, headers=auth())).json()
+    assert await wait_for(lambda: admin_service.BROADCASTS[job["id"]]["done"])
+    stored = (await db_session.execute(select(AdminBroadcastMessage).where(AdminBroadcastMessage.broadcast_id == job["id"]))).scalars().all()
+    assert sorted(m.chat_id for m in stored) == [1002, 1003]
+
+    r = await async_client.delete(f"/api/v1/admin/broadcast/{job['id']}", headers=auth())
+    assert r.status_code == 200 and r.json()["to_delete"] == 2 and not r.json()["untracked"]
+    assert await wait_for(lambda: len(fake_bot.deleted) == 2)
+    assert sorted(c for c, _ in fake_bot.deleted) == [1002, 1003]
+    assert sorted(m for _, m in fake_bot.deleted) == sorted(m.message_id for m in stored)
+    assert await db_session.get(AdminBroadcast, job["id"]) is None
+    hist = (await async_client.get(f"/api/v1/admin/broadcast?uni={d['uni'].id}", headers=auth())).json()
+    assert all(h["id"] != job["id"] for h in hist)
+    assert (await async_client.delete(f"/api/v1/admin/broadcast/{job['id']}", headers=auth())).status_code == 404
+
+    # eski xabar (message_id saqlanmagan): saytdan o'chadi, lekin buni aytadi
+    old = AdminBroadcast(university_id=0, audience="all", text="eski", total=3, sent=3, is_done=True)
+    db_session.add(old)
+    await db_session.commit()
+    r2 = await async_client.delete(f"/api/v1/admin/broadcast/{old.id}", headers=auth())
+    assert r2.status_code == 200 and r2.json()["untracked"] is True
 
 
 @pytest.mark.asyncio

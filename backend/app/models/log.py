@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 from app.models.enums import NotificationType
@@ -32,6 +32,16 @@ class AdminBroadcast(Base, TimestampMixin):
     failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_done: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AdminBroadcastMessage(Base):
+    """Admin sayt xabari har bir foydalanuvchiga qaysi message_id bilan ketgani: saytdan o'chirilsa, chatdan ham o'chiriladi"""
+    __tablename__ = "admin_broadcast_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    broadcast_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
 class NotificationLog(Base, TimestampMixin):

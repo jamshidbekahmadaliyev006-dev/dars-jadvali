@@ -13,14 +13,14 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import pytz
-from sqlalchemy import String, and_, cast, exists, func, or_, select, true
+from sqlalchemy import String, and_, cast, delete, exists, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.logging import logger
 from app.models.enums import SubmissionStatus, TeacherStatus, UserRole
-from app.models.log import AdminBroadcast, Announcement
+from app.models.log import AdminBroadcast, AdminBroadcastMessage, Announcement
 from app.models.schedule import Schedule, ScheduleSubmission
 from app.models.teacher import TeacherLesson, TeacherProfile
 from app.models.university import Faculty, Group, Subject, University
@@ -523,10 +523,14 @@ SESSION_FACTORY = AsyncSessionLocal
 
 async def _save_progress(job: Dict[str, Any]) -> None:
     async with SESSION_FACTORY() as s:
+        pending, job["msgs"] = job.get("msgs", []), []
+        for chat_id, message_id in pending:
+            s.add(AdminBroadcastMessage(broadcast_id=job["id"], chat_id=chat_id, message_id=message_id))
         row = await s.get(AdminBroadcast, job["id"])
         if row:
-            row.sent, row.blocked, row.failed, row.is_done = job["sent"], job["blocked"], job["failed"], job["done"]
-            if job["done"]:
+            finished = job["done"] or job.get("final", False)
+            row.sent, row.blocked, row.failed, row.is_done = job["sent"], job["blocked"], job["failed"], finished
+            if finished:
                 row.finished_at = datetime.now(pytz.utc)
             await s.commit()
 
@@ -537,9 +541,11 @@ async def run_broadcast(bot, broadcast_id: int, recipients: List[int], text: str
     job = BROADCASTS[broadcast_id]
     try:
         for index, telegram_id in enumerate(recipients, start=1):
-            status, note = await safe_send(bot, telegram_id, text, parse_mode=None)  # admin matni HTML emas
+            ids: List[int] = []
+            status, note = await safe_send(bot, telegram_id, text, parse_mode=None, out=ids)  # admin matni HTML emas
             if status == OK:
                 job["sent"] += 1
+                job.setdefault("msgs", []).extend((telegram_id, mid) for mid in ids)
             elif status in (BLOCKED, NOT_STARTED):
                 job["blocked"] += 1
             else:
@@ -549,12 +555,13 @@ async def run_broadcast(bot, broadcast_id: int, recipients: List[int], text: str
                 await _save_progress(job)
             await asyncio.sleep(0.04)  # Telegram: sekundiga ~25 xabar
     finally:
-        job["done"] = True
         job["finished_at"] = time.time()
+        job["final"] = True
         try:
-            await _save_progress(job)
+            await _save_progress(job)  # message_id lar va natija bazaga tushgandan keyingina 'tugadi' deyiladi
         except Exception as e:  # noqa: BLE001
             logger.error(f"Admin broadcast {broadcast_id}: could not save the result: {e}")
+        job["done"] = True
 
 
 async def start_broadcast(session: AsyncSession, bot, uni: int, audience: str, text: str) -> Dict[str, Any]:
@@ -587,6 +594,48 @@ async def broadcast_history(session: AsyncSession, uni: int = 0, audience: str =
         stmt = stmt.where(AdminBroadcast.audience == audience)
     rows = (await session.execute(stmt.order_by(AdminBroadcast.id.desc()).limit(limit))).scalars().all()
     return [_broadcast_out(r) for r in reversed(rows)]
+
+
+async def delete_broadcast(session: AsyncSession, bot, broadcast_id: int) -> Optional[Dict[str, Any]]:
+    """Xabarni saytdan o'chiradi va foydalanuvchilarning chatidan ham o'chirishni boshlaydi.
+    Eski (message_id saqlanmagan) xabarlar faqat saytdan o'chadi - `untracked` shuni bildiradi."""
+    row = await session.get(AdminBroadcast, broadcast_id)
+    if not row:
+        return None
+    job = BROADCASTS.get(broadcast_id)
+    if job and not job["done"]:
+        raise ValueError("Xabar hali yuborilmoqda, tugagach o'chiring")
+    msgs = [(c, m) for c, m in (await session.execute(
+        select(AdminBroadcastMessage.chat_id, AdminBroadcastMessage.message_id)
+        .where(AdminBroadcastMessage.broadcast_id == broadcast_id))).all()]
+    was_sent = row.sent
+    await session.execute(delete(AdminBroadcastMessage).where(AdminBroadcastMessage.broadcast_id == broadcast_id))
+    await session.delete(row)
+    await session.commit()
+    BROADCASTS.pop(broadcast_id, None)
+    if msgs:
+        asyncio.create_task(_delete_messages(bot, broadcast_id, msgs))
+    return {"id": broadcast_id, "to_delete": len(msgs), "untracked": not msgs and was_sent > 0}
+
+
+async def _delete_messages(bot, broadcast_id: int, msgs: List[tuple]) -> None:
+    from aiogram.exceptions import TelegramRetryAfter
+
+    deleted = failed = 0
+    for chat_id, message_id in msgs:
+        for _ in range(3):
+            try:
+                await bot.delete_message(chat_id=chat_id, message_id=message_id)
+                deleted += 1
+                break
+            except TelegramRetryAfter as e:
+                await asyncio.sleep(min(float(e.retry_after) + 0.5, 30))
+            except Exception as e:  # noqa: BLE001 - allaqachon o'chirilgan, bot bloklangan va h.k.
+                failed += 1
+                logger.info(f"Broadcast {broadcast_id}: could not delete {message_id} in {chat_id}: {type(e).__name__}")
+                break
+        await asyncio.sleep(0.04)
+    logger.info(f"Broadcast {broadcast_id} removed from chats: {deleted} deleted, {failed} not deleted")
 
 
 async def broadcast_job(session: AsyncSession, broadcast_id: int) -> Optional[Dict[str, Any]]:
