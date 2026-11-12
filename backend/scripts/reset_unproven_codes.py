@@ -1,7 +1,8 @@
 """
-Darsning kodi faqat asosiy kod (INS001) bo'lsa va hech bir eski nusxada o'sha dars uchun shunday yozuv bo'lmasa, kod
-o'chiriladi (dars faqat nomi bilan ko'rinadi). Qo'shimchali kodlar (INS001-3) va jadvalda aniq yozilgan kodlar qoladi.
-Sabab: birinchi backfill asosiy kodni taxmin bilan yozgan edi va u hamma darsni ma'ruza qilib ko'rsatardi.
+Mavjud darslarning faqat asosiy kodi (INS001, qo'shimchasiz) o'chiriladi: dars faqat nomi bilan ko'rinadi. Qo'shimchali
+to'liq kodlar (INS001-3, ELC013-L2) qoladi. Sabab: qo'shimchasi noma'lum kod hamma darsni ma'ruza qilib ko'rsatardi;
+yangi yuborilgan jadvallar esa kodni qo'shimchasi bilan saqlaydi.
+`--keep-proven`: eski nusxalar jadvalda aynan shunday yozilganini isbotlagan oddiy kodlar ham qolsin.
 
     python scripts/reset_unproven_codes.py /path/to/backups          # ko'rsatadi
     python scripts/reset_unproven_codes.py /path/to/backups --apply
@@ -21,7 +22,7 @@ from app.models.schedule import Schedule  # noqa: E402
 from scripts.recover_lesson_codes import harvest  # noqa: E402
 
 
-async def main(folder: str, apply: bool) -> None:
+async def main(folder: str, apply: bool, keep_proven: bool = False) -> None:
     by_slot, by_schedule = {}, {}
     for path in sorted(glob.glob(os.path.join(folder, "*.db"))):
         harvest(path, by_slot, by_schedule)
@@ -36,14 +37,14 @@ async def main(folder: str, apply: bool) -> None:
                 continue
             if s.code != base:
                 kept_suffix += 1                      # qo'shimchali to'liq kod
-            elif by_slot.get((s.group_id, s.day_of_week.value, s.start_time, base)) == base:
+            elif keep_proven and by_slot.get((s.group_id, s.day_of_week.value, s.start_time, base)) == base:
                 kept_proven += 1                      # jadvalning o'zida shunday yozilgan
             else:
                 reset += 1
                 if apply:
                     s.code = None
         print(f"with a suffix (kept): {kept_suffix}; plain code proven by a real timetable (kept): {kept_proven}; "
-              f"guessed base code (back to name only): {reset}")
+              f"base code without suffix (back to name only): {reset}")
         if apply:
             await session.commit()
             print("written")
@@ -52,6 +53,6 @@ async def main(folder: str, apply: bool) -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main(sys.argv[1], "--apply" in sys.argv))
+    asyncio.run(main(sys.argv[1], "--apply" in sys.argv, "--keep-proven" in sys.argv))
     sys.stdout.flush()
     os._exit(0)
