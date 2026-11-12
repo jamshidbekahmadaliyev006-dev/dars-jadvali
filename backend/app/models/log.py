@@ -25,6 +25,7 @@ class AdminBroadcast(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     university_id: Mapped[int] = mapped_column(Integer, index=True, default=0, nullable=False)  # 0 = barcha universitetlar
     audience: Mapped[str] = mapped_column(String(20), index=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(10), index=True, default="msg", server_default="msg", nullable=False)  # msg = xabar, ad = reklama
     text: Mapped[str] = mapped_column(Text, nullable=False)
     total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     sent: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

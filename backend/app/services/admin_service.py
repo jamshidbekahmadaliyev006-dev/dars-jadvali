@@ -564,17 +564,18 @@ async def run_broadcast(bot, broadcast_id: int, recipients: List[int], text: str
         job["done"] = True
 
 
-async def start_broadcast(session: AsyncSession, bot, uni: int, audience: str, text: str) -> Dict[str, Any]:
+async def start_broadcast(session: AsyncSession, bot, uni: int, audience: str, text: str, kind: str = "msg") -> Dict[str, Any]:
     users = await audience_users(session, uni, audience)
     univ_id = uni or await session.scalar(select(University.id).order_by(University.id).limit(1))
     if not univ_id:
         raise ValueError("Universitet yo'q")
-    row = AdminBroadcast(university_id=uni, audience=audience, text=text, total=len(users))
-    session.add(Announcement(university_id=univ_id, title=text[:100], content=text))
+    row = AdminBroadcast(university_id=uni, audience=audience, kind=kind, text=text, total=len(users))
+    if kind == "msg":  # reklama e'lonlar tarixiga aralashmaydi
+        session.add(Announcement(university_id=univ_id, title=text[:100], content=text))
     session.add(row)
     await session.commit()
     await session.refresh(row)
-    BROADCASTS[row.id] = {"id": row.id, "audience": audience, "total": len(users), "sent": 0, "blocked": 0,
+    BROADCASTS[row.id] = {"id": row.id, "audience": audience, "kind": kind, "total": len(users), "sent": 0, "blocked": 0,
                           "failed": 0, "done": False, "uni": uni}
     asyncio.create_task(run_broadcast(bot, row.id, [u.telegram_id for u in users], text))
     return BROADCASTS[row.id]
@@ -582,14 +583,14 @@ async def start_broadcast(session: AsyncSession, bot, uni: int, audience: str, t
 
 def _broadcast_out(row: AdminBroadcast) -> Dict[str, Any]:
     job = BROADCASTS.get(row.id)  # yuborilayotgan bo'lsa jonli hisob
-    return {"id": row.id, "text": row.text, "created": _fmt(row.created_at, "%d.%m %H:%M"), "audience": row.audience,
+    return {"id": row.id, "kind": row.kind, "text": row.text, "created": _fmt(row.created_at, "%d.%m %H:%M"), "audience": row.audience,
             "total": row.total, "sent": job["sent"] if job else row.sent, "blocked": job["blocked"] if job else row.blocked,
             "failed": job["failed"] if job else row.failed, "done": job["done"] if job else bool(row.is_done)}
 
 
-async def broadcast_history(session: AsyncSession, uni: int = 0, audience: str = "", limit: int = 30) -> List[Dict[str, Any]]:
+async def broadcast_history(session: AsyncSession, uni: int = 0, audience: str = "", limit: int = 30, kind: str = "msg") -> List[Dict[str, Any]]:
     """Tanlangan universitet va AUDITORIYA uchun yuborilgan xabarlar (boshqa auditoriyaniki ko'rinmaydi)"""
-    stmt = select(AdminBroadcast).where(AdminBroadcast.university_id == uni)
+    stmt = select(AdminBroadcast).where(AdminBroadcast.university_id == uni, AdminBroadcast.kind == kind)
     if audience:
         stmt = stmt.where(AdminBroadcast.audience == audience)
     rows = (await session.execute(stmt.order_by(AdminBroadcast.id.desc()).limit(limit))).scalars().all()

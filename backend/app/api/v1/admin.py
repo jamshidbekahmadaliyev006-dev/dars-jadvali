@@ -291,11 +291,12 @@ async def audiences(uni: int = Query(0), admin=Admin, session: AsyncSession = De
 
 
 @router.get("/broadcast")
-async def broadcast_history(uni: int = Query(0), audience: str = "", admin=Admin, session: AsyncSession = Depends(get_db)):
+async def broadcast_history(uni: int = Query(0), audience: str = "", kind: str = Query("msg", pattern="^(msg|ad)$"),
+                            admin=Admin, session: AsyncSession = Depends(get_db)):
     """Tanlangan auditoriyaga yuborilgan xabarlar tarixi; boshqa auditoriyaniki aralashmaydi"""
     if audience and audience not in svc.AUDIENCES:
         raise HTTPException(status_code=422, detail="Auditoriya noto'g'ri")
-    return await svc.broadcast_history(session, await _uni(session, uni), audience)
+    return await svc.broadcast_history(session, await _uni(session, uni), audience, kind=kind)
 
 
 @router.delete("/broadcast/{broadcast_id}")
@@ -314,6 +315,7 @@ async def delete_broadcast(broadcast_id: int, admin=Admin, session: AsyncSession
 class BroadcastIn(BaseModel):
     uni: int = 0
     audience: str
+    kind: str = Field(default="msg", pattern="^(msg|ad)$")
     text: str = Field(min_length=1, max_length=4000)
 
 
@@ -323,7 +325,7 @@ async def broadcast(body: BroadcastIn, admin=Admin, session: AsyncSession = Depe
     if body.audience not in svc.AUDIENCES:
         raise HTTPException(status_code=422, detail="Auditoriya noto'g'ri")
     try:
-        job = await svc.start_broadcast(session, _bot(), body.uni, body.audience, body.text.strip())
+        job = await svc.start_broadcast(session, _bot(), body.uni, body.audience, body.text.strip(), body.kind)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     logger.info(f"Admin site broadcast {job['id']} by {admin['id']}: {job['total']} recipients ({body.audience})")

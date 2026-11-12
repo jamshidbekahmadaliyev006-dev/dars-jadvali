@@ -463,6 +463,30 @@ async def test_deleting_a_broadcast_removes_it_from_the_users_chats_too(async_cl
 
 
 @pytest.mark.asyncio
+async def test_ads_and_messages_have_separate_histories(async_client, db_session, fake_bot):
+    d = await seed(db_session)
+    uni = d["uni"].id
+    ad = (await async_client.post("/api/v1/admin/broadcast", json={"uni": uni, "audience": "nosch", "kind": "ad", "text": "Reklama matni"}, headers=auth())).json()
+    assert await wait_for(lambda: admin_service.BROADCASTS[ad["id"]]["done"])
+    msg = (await async_client.post("/api/v1/admin/broadcast", json={"uni": uni, "audience": "nosch", "text": "Oddiy xabar"}, headers=auth())).json()
+    assert await wait_for(lambda: admin_service.BROADCASTS[msg["id"]]["done"])
+    get = lambda k: async_client.get(f"/api/v1/admin/broadcast?uni={uni}&audience=nosch&kind={k}", headers=auth())
+    ads, msgs = (await get("ad")).json(), (await get("msg")).json()
+    assert [h["text"] for h in ads] == ["Reklama matni"] and all(h["kind"] == "ad" for h in ads)
+    assert [h["text"] for h in msgs] == ["Oddiy xabar"]
+    default = (await async_client.get(f"/api/v1/admin/broadcast?uni={uni}", headers=auth())).json()
+    assert [h["text"] for h in default] == ["Oddiy xabar"]  # kind berilmasa - faqat xabarlar
+    # reklama e'lonlar tarixiga yozilmaydi
+    titles = [a_.title for a_ in (await db_session.execute(select(Announcement))).scalars().all()]
+    assert "Reklama matni" not in titles and "Oddiy xabar" in titles
+    assert (await async_client.get(f"/api/v1/admin/broadcast?uni={uni}&kind=zzz", headers=auth())).status_code == 422
+    # reklamani o'chirish ham chatdan o'chiradi
+    r = await async_client.delete(f"/api/v1/admin/broadcast/{ad['id']}", headers=auth())
+    assert r.status_code == 200 and r.json()["to_delete"] == 2
+    assert await wait_for(lambda: len(fake_bot.deleted) == 2)
+
+
+@pytest.mark.asyncio
 async def test_broadcast_to_teachers_and_to_everyone(async_client, db_session, fake_bot):
     d = await seed(db_session)
     r = await async_client.post("/api/v1/admin/broadcast", json={"uni": 0, "audience": "teachers", "text": "Ustozlarga"}, headers=auth())

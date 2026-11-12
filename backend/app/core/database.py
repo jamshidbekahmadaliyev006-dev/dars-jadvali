@@ -52,6 +52,22 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+def _add_missing_columns(sync_conn) -> None:
+    """create_all mavjud jadvalga yangi ustun qo'shmaydi: kerakli ustunlarni shu yerda qo'shamiz (bor bo'lsa tegmaydi)"""
+    from sqlalchemy import inspect, text
+
+    wanted = {"admin_broadcasts": [("kind", "VARCHAR(10) NOT NULL DEFAULT 'msg'")]}
+    insp = inspect(sync_conn)
+    for table, columns in wanted.items():
+        if not insp.has_table(table):
+            continue
+        have = {c["name"] for c in insp.get_columns(table)}
+        for name, ddl in columns:
+            if name not in have:
+                sync_conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                logger.info(f"Added column {table}.{name}")
+
+
 async def init_db() -> None:
     """Initialize database tables"""
     from app.models.base import Base
@@ -61,6 +77,7 @@ async def init_db() -> None:
     logger.info("Initializing database tables...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_add_missing_columns)
     logger.info("Database tables initialized successfully.")
 
 
