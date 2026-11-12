@@ -5,7 +5,9 @@ from types import SimpleNamespace as NS
 import pytest
 from sqlalchemy import select
 
-from app.bot.text_utils import _lesson_line, format_reminder, format_teacher_reminder, _teacher_line, subject_label
+from app.bot.text_utils import (
+    _lesson_line, _teacher_line, format_reminder, format_teacher_reminder, raw_subject_label, schedule_issues, subject_label,
+)
 from app.models.enums import DayOfWeek, SubmissionStatus, WeekParity
 from app.models.schedule import Schedule, ScheduleSubmission
 from app.models.university import Faculty, Group, University
@@ -31,17 +33,20 @@ def test_the_full_code_is_kept_and_the_subject_is_still_one(raw, name, base, ful
 def test_code_goes_in_front_of_the_subject_everywhere():
     s = NS(start_time="08:30", subject=NS(name="Fizika 1", code="PHY018"), code="PHY018-L2", room=NS(number="A-327"),
            teacher=None, week_parity=WeekParity.ALL, end_time="09:50")
-    assert "<code>PHY018-L2</code> Fizika 1" in _lesson_line(s, "uz")
-    assert "📚 <code>PHY018-L2</code> Fizika 1" in format_reminder(s, 15, "uz")
+    assert "Fizika 1 PHY018-L2 · A-327" in _lesson_line(s, "uz")          # nom, kod, xona: oddiy matn
+    assert "📚 Fizika 1 PHY018-L2" in format_reminder(s, 15, "uz")
+    assert "<code>" not in _lesson_line(s, "uz") and "<code>" not in format_reminder(s, 15, "uz")   # bosganda nusxalanmaydi
     # to'liq kod saqlanmagan eski dars: fan kodi ko'rsatiladi; kodsiz fan - faqat nom
     old = NS(start_time="08:30", subject=NS(name="Fizika 1", code="PHY018"), code=None, room=None, teacher=None, week_parity=WeekParity.ALL)
-    assert "<code>PHY018</code> Fizika 1" in _lesson_line(old, "uz")
+    assert "Fizika 1 PHY018" in _lesson_line(old, "uz")
     nocode = NS(start_time="08:30", subject=NS(name="Xorijiy til", code=None), code=None, room=None, teacher=None, week_parity=WeekParity.ALL)
     assert "<code>" not in _lesson_line(nocode, "uz") and "Xorijiy til" in _lesson_line(nocode, "uz")
-    assert subject_label("A<b>", "X1") == "<code>X1</code> A&lt;b&gt;"          # HTML buzilmaydi
+    assert subject_label("A<b>", "X1") == "A&lt;b&gt; X1"                       # HTML buzilmaydi
+    assert raw_subject_label("Chiziqli algebra (6 kr)-LIA016-1") == "Chiziqli algebra LIA016-1"   # AI o'qiganida ham shunday
+    assert raw_subject_label("Xorijiy til") == "Xorijiy til" and raw_subject_label(None) == "?"
     t = NS(start_time="10:00", end_time="11:20", subject="Kriptografiya", code="CGM001-2", group_name="712-24", room=None, week_parity=WeekParity.ALL)
-    assert "<code>CGM001-2</code> Kriptografiya" in _teacher_line(t, "uz")
-    assert "📚 <code>CGM001-2</code> Kriptografiya" in format_teacher_reminder(t, 15, "uz", __import__("datetime").date.today())
+    assert "Kriptografiya CGM001-2" in _teacher_line(t, "uz")
+    assert "📚 Kriptografiya CGM001-2" in format_teacher_reminder(t, 15, "uz", __import__("datetime").date.today())
 
 
 @pytest.mark.asyncio
@@ -76,3 +81,10 @@ async def test_approved_schedule_saves_the_full_code_and_resending_updates_it(db
     await ScheduleService.resolve_and_create_schedules_from_extraction(db_session, second)
     rows = (await db_session.execute(select(Schedule).where(Schedule.is_active == True))).scalars().all()  # noqa: E712
     assert [(r.day_of_week, r.code) for r in rows] == [(DayOfWeek.MONDAY, "PHY018-2")]   # dars ko'paymadi, kodi yangilandi
+
+
+def test_what_the_ai_read_is_shown_in_the_same_form():
+    lessons = [{"day": "Dushanba", "subject": "Chiziqli algebra (6 kr)-LIA016-1", "start_time": "13:00", "end_time": "14:20",
+                "room": None, "building": None}]
+    text = "\n".join(schedule_issues(lessons, "uz"))
+    assert "Chiziqli algebra LIA016-1" in text and "(6 kr)" not in text

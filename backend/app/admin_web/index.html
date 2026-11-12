@@ -608,12 +608,15 @@ function drawThemeBtn(){var b=$("#themeBtn");if(b)b.innerHTML=effTheme()==="ligh
 
 /* ---------- request view: AI-read schedule, editable ---------- */
 var RV={sub:null,edit:false,draft:null};
+function subjLabel(raw){var m=/[\s\/\-–]*\b([A-Z]{2,}\d{2,})(-[A-Za-z]?\d+)?\s*$/.exec(raw||"");
+  if(!m)return raw||"";var name=(raw.slice(0,m.index)).replace(/\([^)]*\)/g," ").replace(/\s+/g," ").replace(/^[\s\/\-–,.]+|[\s\/\-–,.]+$/g,"");
+  return (name||raw)+" "+m[1]+(m[2]||"")}
 function dayIdx(d){var i=DAYN.indexOf(d);return i<0?9:i}
 function opts(list,cur){var has=list.some(function(o){return o[0]===cur});return (has?"":'<option value="'+esc(cur)+'" selected>'+esc(cur)+'</option>')+list.map(function(o){return '<option value="'+esc(o[0])+'"'+(o[0]===cur?" selected":"")+'>'+esc(o[1])+'</option>'}).join("")}
 function drawRV(){var r=RV.sub,head='<div class="rv-head"><h2>So‘rov №'+r.id+'</h2>'+stPill(r.status)+'</div><p>Guruh '+esc(r.group||"—")+' · '+esc(r.created)+' · '+esc(r.user||"")+(r.username?" (@"+esc(r.username)+")":"")+' · AI '+r.lessons.length+' ta dars o‘qidi</p>'+(r.notes&&r.notes.indexOf("⚠️")>-1?'<p class="note" style="margin:0">'+esc(r.notes)+'</p>':""),body;
   var th='<thead><tr><th>Kun</th><th>Vaqt</th><th>Fan</th><th>Xona</th><th>O‘qituvchi</th><th>Hafta</th>'+(RV.edit?'<th></th>':'')+'</tr></thead>';
   if(!RV.edit){var L=r.lessons.slice().sort(function(a,b){return dayIdx(a.day)-dayIdx(b.day)||a.start_time.localeCompare(b.start_time)});
-    body=L.length?L.map(function(l){return '<tr><td>'+esc(l.day)+'</td><td>'+esc(l.start_time)+(l.end_time?"–"+esc(l.end_time):"")+'</td><td>'+esc(l.subject)+'</td><td>'+esc(l.room||"—")+'</td><td>'+esc(l.teacher||"—")+'</td><td>'+(PARN[l.week_parity]||PARN.ALL)+'</td></tr>'}).join(""):'<tr><td colspan="6"><div class="empty">Darslar topilmadi.</div></td></tr>';
+    body=L.length?L.map(function(l){return '<tr><td>'+esc(l.day)+'</td><td>'+esc(l.start_time)+(l.end_time?"–"+esc(l.end_time):"")+'</td><td>'+esc(subjLabel(l.subject))+'</td><td>'+esc(l.room||"—")+'</td><td>'+esc(l.teacher||"—")+'</td><td>'+(PARN[l.week_parity]||PARN.ALL)+'</td></tr>'}).join(""):'<tr><td colspan="6"><div class="empty">Darslar topilmadi.</div></td></tr>';
     openDlg(head+'<div class="tbl-wrap rv-tbl"><table>'+th+'<tbody>'+body+'</tbody></table></div><div class="acts" style="justify-content:space-between"><button class="btn" type="button" data-dlg="x">Yopish</button><span class="acts">'+
       (r.open?'<button class="btn danger" type="button" data-act="req-bad" data-id="'+r.id+'">Rad etish</button><button class="btn" type="button" data-act="req-ok" data-id="'+r.id+'">Tasdiqlash</button>':"")+
       '<button class="btn primary" type="button" data-act="rv-edit">'+PENCIL+'O‘zgartirish</button></span></div>',true)}

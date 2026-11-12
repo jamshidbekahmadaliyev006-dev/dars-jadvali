@@ -38,8 +38,7 @@ def schedule_issues(lessons: Sequence[Dict[str, Any]], lang: str = DEFAULT_LANG,
     for item in lessons:
         day = item.get("day") or "?"
         start = item.get("start_time") or ""
-        subject = (item.get("subject") or "?")[:40]
-        label = f"{esc(day)} {esc(start)} — {esc(subject)}"
+        label = f"{esc(day)} {esc(start)} — {raw_subject_label(item.get('subject'))}"
         problems = []
         if not resolve_day_of_week(item.get("day")):
             problems.append(t(lang, "issue_day"))
@@ -65,7 +64,7 @@ def schedule_issues(lessons: Sequence[Dict[str, Any]], lang: str = DEFAULT_LANG,
         if same_slot and parity_clash and _minutes(b.get("start_time")) < _minutes(a.get("end_time")):
             issues.append(
                 f"• {esc(a.get('day'))} {esc(b.get('start_time'))}: "
-                + t(lang, "issue_overlap", a=esc((a.get("subject") or "?")[:30]), b=esc((b.get("subject") or "?")[:30]))
+                + t(lang, "issue_overlap", a=raw_subject_label(a.get("subject")), b=raw_subject_label(b.get("subject")))
             )
     return issues
 
@@ -101,11 +100,18 @@ def schedule_summary(schedules: Sequence[Any], lang: str = DEFAULT_LANG) -> str:
 
 
 def subject_label(name: Optional[str], code: Optional[str], html: bool = True) -> str:
-    """Fan nomi oldida to'liq kodi: 'BGH001-3 Fan nomi' (kod bo'lmasa faqat nom)"""
+    """Fan nomi va to'liq kodi oddiy matn bilan: 'Chiziqli algebra LIA016-1' (kod bo'lmasa faqat nom).
+    Kod amaliyot/ma'ruza ekanini bildiradi (LIA016 - ma'ruza, LIA016-1 - amaliyot)."""
     name = esc(name) if name else "—"
-    if not code:
-        return name
-    return f"<code>{esc(code)}</code> {name}"
+    return f"{name} {esc(code)}" if code else name
+
+
+def raw_subject_label(raw: Optional[str]) -> str:
+    """AI o'qigan xom yozuv ('Chiziqli algebra (6 kr)-LIA016-1') -> 'Chiziqli algebra LIA016-1'"""
+    from app.services.schedule_service import split_subject_code
+
+    name, _base, full = split_subject_code(raw or "")
+    return subject_label(name or "?", full)
 
 
 def lesson_code(s: Any) -> Optional[str]:
